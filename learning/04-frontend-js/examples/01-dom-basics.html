@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>DOM 操作基础</title>
+    <style>
+        body { font-family: Arial; padding: 20px; max-width: 800px; margin: 0 auto; }
+        h1 { color: #006633; }
+        .demo-box { 
+            border: 2px solid #ddd; 
+            padding: 20px; 
+            margin: 20px 0; 
+            border-radius: 8px; 
+        }
+        .demo-box h3 { margin-top: 0; color: #333; }
+        button { 
+            padding: 8px 16px; 
+            margin: 5px; 
+            cursor: pointer;
+            background: #006633;
+            color: white;
+            border: none;
+            border-radius: 4px;
+        }
+        button:hover { background: #004d26; }
+        #output { background: #f5f5f5; padding: 15px; min-height: 50px; border-radius: 4px; }
+        .code { background: #f0f0f0; padding: 10px; font-family: monospace; margin: 10px 0; border-radius: 4px; }
+        .message { padding: 10px; margin: 5px 0; background: #e8f5e9; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <h1>📚 DOM 操作基础</h1>
+    <p>DOM (Document Object Model) 让 JavaScript 可以操作网页内容。</p>
+    
+    <!-- 示例1: 获取和修改元素 -->
+    <div class="demo-box">
+        <h3>1. 获取和修改元素</h3>
+        <div class="code">
+            document.getElementById('target').textContent = '新内容';
+        </div>
+        <p id="target">我是原始内容，点击按钮改变我</p>
+        <button onclick="changeText()">修改文字</button>
+        <button onclick="changeColor()">修改颜色</button>
+        <button onclick="resetTarget()">重置</button>
+    </div>
+    
+    <!-- 示例2: 创建和添加元素 -->
+    <div class="demo-box">
+        <h3>2. 创建和添加元素</h3>
+        <div class="code">
+            const div = document.createElement('div');<br>
+            div.textContent = '新元素';<br>
+            container.appendChild(div);
+        </div>
+        <div id="messageContainer"></div>
+        <button onclick="addMessage()">添加消息</button>
+        <button onclick="clearMessages()">清空</button>
+    </div>
+    
+    <!-- 示例3: 修改样式和类 -->
+    <div class="demo-box">
+        <h3>3. 修改样式和 CSS 类</h3>
+        <div class="code">
+            element.style.backgroundColor = 'yellow';<br>
+            element.classList.add('active');
+        </div>
+        <div id="styleBox" style="padding: 20px; background: #eee; transition: all 0.3s;">
+            我的样式会改变
+        </div>
+        <br>
+        <button onclick="toggleBackground()">切换背景</button>
+        <button onclick="toggleBorder()">切换边框</button>
+        <button onclick="toggleSize()">切换大小</button>
+    </div>
+    
+    <!-- 示例4: 读取表单值 -->
+    <div class="demo-box">
+        <h3>4. 读取表单输入</h3>
+        <div class="code">
+            const value = document.getElementById('input').value;
+        </div>
+        <input type="text" id="userInput" placeholder="输入一些内容">
+        <button onclick="showInput()">显示输入值</button>
+        <div id="inputResult"></div>
+    </div>
+    
+    <!-- 练习区 -->
+    <div class="demo-box" style="background: #fff3cd;">
+        <h3>🔧 练习: 计数器</h3>
+        <p>使用 DOM 操作实现一个计数器</p>
+        <div style="font-size: 48px; text-align: center;" id="counter">0</div>
+        <div style="text-align: center;">
+            <button onclick="decrement()">-1</button>
+            <button onclick="increment()">+1</button>
+            <button onclick="resetCounter()">重置</button>
+        </div>
+    </div>
+
+    <script>
+        // ========== 示例1: 获取和修改元素 ==========
+        function changeText() {
+            // 通过 ID 获取元素
+            const target = document.getElementById('target');
+            // 修改文本内容
+            target.textContent = '内容已被 JavaScript 修改！时间: ' + new Date().toLocaleTimeString();
+        }
+        
+        function changeColor() {
+            const target = document.getElementById('target');
+            // 修改样式
+            const colors = ['red', 'blue', 'green', 'purple', 'orange'];
+            const random = colors[Math.floor(Math.random() * colors.length)];
+            target.style.color = random;
+            target.style.fontWeight = 'bold';
+        }
+        
+        function resetTarget() {
+            const target = document.getElementById('target');
+            target.textContent = '我是原始内容，点击按钮改变我';
+            target.style.color = '';
+            target.style.fontWeight = '';
+        }
+        
+        // ========== 示例2: 创建和添加元素 ==========
+        let messageCount = 0;
+        
+        function addMessage() {
+            messageCount++;
+            
+            // 创建新元素
+            const div = document.createElement('div');
+            div.className = 'message';
+            div.textContent = '消息 #' + messageCount + ' - ' + new Date().toLocaleTimeString();
+            
+            // 添加到容器
+            const container = document.getElementById('messageContainer');
+            container.appendChild(div);
+            
+            // 滚动到最新
+            container.scrollTop = container.scrollHeight;
+        }
+        
+        function clearMessages() {
+            document.getElementById('messageContainer').innerHTML = '';
+            messageCount = 0;
+        }
+        
+        // ========== 示例3: 修改样式 ==========
+        function toggleBackground() {
+            const box = document.getElementById('styleBox');
+            const current = box.style.backgroundColor;
+            box.style.backgroundColor = current === 'yellow' ? '#eee' : 'yellow';
+        }
+        
+        function toggleBorder() {
+            const box = document.getElementById('styleBox');
+            const current = box.style.border;
+            box.style.border = current ? '' : '3px solid #006633';
+        }
+        
+        function toggleSize() {
+            const box = document.getElementById('styleBox');
+            const current = box.style.fontSize;
+            box.style.fontSize = current === '24px' ? '' : '24px';
+        }
+        
+        // ========== 示例4: 读取表单 ==========
+        function showInput() {
+            const input = document.getElementById('userInput');
+            const result = document.getElementById('inputResult');
+            
+            if (input.value.trim()) {
+                result.innerHTML = '<strong>你输入了:</strong> ' + input.value;
+            } else {
+                result.innerHTML = '<em>请先输入内容</em>';
+            }
+        }
+        
+        // ========== 练习: 计数器 ==========
+        let count = 0;
+        
+        function increment() {
+            count++;
+            updateCounter();
+        }
+        
+        function decrement() {
+            count--;
+            updateCounter();
+        }
+        
+        function resetCounter() {
+            count = 0;
+            updateCounter();
+        }
+        
+        function updateCounter() {
+            const counter = document.getElementById('counter');
+            counter.textContent = count;
+            // 根据值改变颜色
+            if (count > 0) {
+                counter.style.color = 'green';
+            } else if (count < 0) {
+                counter.style.color = 'red';
+            } else {
+                counter.style.color = 'black';
+            }
+        }
+    </script>
+</body>
+</html>

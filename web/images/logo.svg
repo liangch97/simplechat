@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#006633;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#00994d;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- 背景圆 -->
+  <circle cx="50" cy="50" r="45" fill="url(#grad)"/>
+  
+  <!-- 聊天气泡 1 -->
+  <path d="M25 35 h25 a5 5 0 0 1 5 5 v12 a5 5 0 0 1 -5 5 h-15 l-8 8 v-8 h-2 a5 5 0 0 1 -5 -5 v-12 a5 5 0 0 1 5 -5" 
+        fill="white" opacity="0.95"/>
+  
+  <!-- 聊天气泡 2 -->
+  <path d="M45 48 h25 a5 5 0 0 1 5 5 v12 a5 5 0 0 1 -5 5 h-2 v8 l-8 -8 h-15 a5 5 0 0 1 -5 -5 v-12 a5 5 0 0 1 5 -5" 
+        fill="white" opacity="0.9"/>
+  
+  <!-- 点装饰 -->
+  <circle cx="32" cy="46" r="2.5" fill="#006633"/>
+  <circle cx="40" cy="46" r="2.5" fill="#006633"/>
+  <circle cx="48" cy="46" r="2.5" fill="#006633"/>
+  
+  <circle cx="55" cy="59" r="2" fill="#006633"/>
+  <circle cx="62" cy="59" r="2" fill="#006633"/>
+  <circle cx="69" cy="59" r="2" fill="#006633"/>
+</svg>

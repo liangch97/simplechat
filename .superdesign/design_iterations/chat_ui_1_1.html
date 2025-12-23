@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cyberpunk Chat Terminal v2</title>
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Oxanium:wght@400;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Icons -->
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+    
+    <!-- Tailwind & Flowbite -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flowbite@2.0.0/dist/flowbite.min.js"></script>
+    
+    <!-- Theme v2 -->
+    <link rel="stylesheet" href="theme_cyberpunk_v2.css">
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        background: 'var(--background)',
+                        foreground: 'var(--foreground)',
+                        primary: 'var(--primary)',
+                        'primary-foreground': 'var(--primary-foreground)',
+                        secondary: 'var(--secondary)',
+                        'secondary-foreground': 'var(--secondary-foreground)',
+                        accent: 'var(--accent)',
+                        'accent-foreground': 'var(--accent-foreground)',
+                        muted: 'var(--muted)',
+                        'muted-foreground': 'var(--muted-foreground)',
+                        card: 'var(--card)',
+                        'card-foreground': 'var(--card-foreground)',
+                        border: 'var(--border)',
+                        input: 'var(--input)',
+                        sidebar: 'var(--sidebar)',
+                        'sidebar-foreground': 'var(--sidebar-foreground)',
+                        'sidebar-primary': 'var(--sidebar-primary)',
+                        'sidebar-accent': 'var(--sidebar-accent)',
+                        destructive: 'var(--destructive)',
+                    },
+                    fontFamily: {
+                        sans: ['var(--font-sans)'],
+                        mono: ['var(--font-mono)'],
+                    },
+                    boxShadow: {
+                        'neon': 'var(--shadow)',
+                        'neon-sm': 'var(--shadow-sm)',
+                        'neon-md': 'var(--shadow-md)',
+                        'neon-lg': 'var(--shadow-lg)',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        /* Layered background: gradients + grid + noise + vignette */
+        body {
+            background-color: var(--background);
+            background-image:
+                radial-gradient(circle at 15% 20%, rgba(0, 255, 255, 0.15), transparent 28%),
+                radial-gradient(circle at 80% 10%, rgba(255, 0, 140, 0.18), transparent 30%),
+                radial-gradient(circle at 60% 70%, rgba(255, 215, 0, 0.08), transparent 35%),
+                linear-gradient(135deg, rgba(20, 12, 40, 0.8), rgba(5, 10, 25, 0.9));
+            position: relative;
+        }
+        .bg-grid {
+            position: absolute;
+            inset: 0;
+            background-image:
+                repeating-linear-gradient(0deg, rgba(255,255,255,0.04) 0px, rgba(255,255,255,0.04) 1px, transparent 1px, transparent 20px),
+                repeating-linear-gradient(90deg, rgba(255,255,255,0.04) 0px, rgba(255,255,255,0.04) 1px, transparent 1px, transparent 20px);
+            mix-blend-mode: screen;
+            opacity: 0.35;
+            pointer-events: none;
+            z-index: 5;
+        }
+        .bg-noise {
+            position: absolute;
+            inset: 0;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 160 160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.25'/%3E%3C/svg%3E");
+            opacity: 0.08;
+            pointer-events: none;
+            z-index: 6;
+        }
+        .vignette {
+            position: absolute;
+            inset: 0;
+            box-shadow: inset 0 0 160px rgba(0,0,0,0.55);
+            pointer-events: none;
+            z-index: 7;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: var(--background); border-left: 1px solid var(--border); }
+        ::-webkit-scrollbar-thumb { background: var(--muted); border: 1px solid var(--primary); }
+        ::-webkit-scrollbar-thumb:hover { background: var(--primary); }
+
+        /* CRT Scanline Effect */
+        .scanline {
+            width: 100%;
+            height: 120px;
+            z-index: 50;
+            background: linear-gradient(0deg, rgba(0,0,0,0) 0%, rgba(0, 255, 255, 0.08) 50%, rgba(0,0,0,0) 100%);
+            opacity: 0.12;
+            position: absolute;
+            bottom: 100%;
+            animation: scanline 8s linear infinite;
+            pointer-events: none;
+        }
+        @keyframes scanline { 0% { bottom: 100%; } 100% { bottom: -120px; } }
+
+        /* CRT Flicker */
+        .crt::before {
+            content: " ";
+            display: block;
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%),
+                        linear-gradient(90deg, rgba(255, 0, 0, 0.04), rgba(0, 255, 0, 0.03), rgba(0, 0, 255, 0.04));
+            z-index: 40;
+            background-size: 100% 2px, 3px 100%;
+            pointer-events: none;
+        }
+
+        /* Glitch Effect Class */
+        .glitch { position: relative; }
+        .glitch::before,
+        .glitch::after {
+            content: attr(data-text);
+            position: absolute;
+            inset: 0;
+            background: var(--background);
+        }
+        .glitch::before {
+            left: 2px;
+            text-shadow: -1px 0 var(--secondary);
+            clip: rect(24px, 550px, 90px, 0);
+            animation: glitch-anim-2 3s infinite linear alternate-reverse;
+        }
+        .glitch::after {
+            left: -2px;
+            text-shadow: -1px 0 var(--primary);
+            clip: rect(85px, 550px, 140px, 0);
+            animation: glitch-anim 2.5s infinite linear alternate-reverse;
+        }
+        @keyframes glitch-anim {
+            0% { clip: rect(14px, 9999px, 127px, 0); }
+            20% { clip: rect(80px, 9999px, 26px, 0); }
+            40% { clip: rect(36px, 9999px, 10px, 0); }
+            60% { clip: rect(100px, 9999px, 68px, 0); }
+            80% { clip: rect(12px, 9999px, 5px, 0); }
+            100% { clip: rect(65px, 9999px, 110px, 0); }
+        }
+        @keyframes glitch-anim-2 {
+            0% { clip: rect(65px, 9999px, 100px, 0); }
+            20% { clip: rect(10px, 9999px, 75px, 0); }
+            40% { clip: rect(120px, 9999px, 15px, 0); }
+            60% { clip: rect(5px, 9999px, 40px, 0); }
+            80% { clip: rect(90px, 9999px, 120px, 0); }
+            100% { clip: rect(30px, 9999px, 5px, 0); }
+        }
+
+        /* Neon Pulse Animation */
+        @keyframes neon-pulse {
+            0%, 100% { box-shadow: 0 0 5px var(--primary), 0 0 12px var(--primary); }
+            50% { box-shadow: 0 0 2px var(--primary), 0 0 6px var(--primary); }
+        }
+        .neon-border { animation: neon-pulse 4s infinite alternate; }
+
+        /* Message Entry Animation */
+        @keyframes slide-in { from { transform: translateX(-20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        .message-enter { animation: slide-in 0.3s ease-out forwards; }
+    </style>
+</head>
+<body class="bg-background text-foreground font-sans h-screen w-screen overflow-hidden flex flex-col crt selection:bg-primary selection:text-background relative">
+
+    <!-- Layered Background Effects -->
+    <div class="bg-grid"></div>
+    <div class="bg-noise"></div>
+    <div class="vignette"></div>
+    <div class="scanline"></div>
+
+    <!-- Top Bar -->
+    <header class="h-14 border-b border-primary flex items-center justify-between px-4 bg-background/70 backdrop-blur z-50 shrink-0 relative">
+        <div class="flex items-center gap-4">
+            <div class="flex items-center gap-2 text-primary">
+                <i data-lucide="zap" class="w-5 h-5 animate-pulse"></i>
+                <span class="font-bold tracking-widest text-lg glitch" data-text="NET_LINK: STABLE">NET_LINK: STABLE</span>
+            </div>
+            <div class="h-6 w-[1px] bg-muted-foreground/50"></div>
+            <div class="text-sm font-mono text-muted-foreground">SYS_TIME: <span id="clock">2077.12.09</span></div>
+        </div>
+        
+        <div class="flex items-center gap-4">
+            <div class="hidden md:flex items-center gap-2 text-xs font-mono text-accent">
+                <span>MEM: 64TB</span>
+                <span>CPU: 12%</span>
+                <span>PING: 2ms</span>
+            </div>
+            <button class="border border-destructive text-destructive hover:bg-destructive hover:text-destructive-foreground px-4 py-1 text-sm font-bold uppercase transition-all duration-200 flex items-center gap-2 group">
+                <i data-lucide="power" class="w-4 h-4"></i>
+                <span>Disconnect</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="flex-1 flex overflow-hidden relative z-10">
+        
+        <!-- Sidebar -->
+        <aside class="w-64 border-r border-sidebar-border bg-sidebar/80 backdrop-blur flex flex-col shrink-0 hidden md:flex">
+            <!-- User Profile -->
+            <div class="p-4 border-b border-sidebar-border">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 bg-primary/20 border border-primary flex items-center justify-center relative">
+                        <i data-lucide="user" class="w-6 h-6 text-primary"></i>
+                        <div class="absolute -bottom-1 -right-1 w-3 h-3 bg-green-500 border border-black"></div>
+                    </div>
+                    <div>
+                        <div class="font-bold text-primary tracking-wide">GHOST_RIDER</div>
+                        <div class="text-xs text-muted-foreground font-mono">LVL. 99 NETRUNNER</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Channels -->
+            <div class="p-4 flex-1 overflow-y-auto">
+                <div class="mb-6">
+                    <h3 class="text-xs font-bold text-muted-foreground mb-3 px-2 flex items-center gap-2">
+                        <i data-lucide="hash" class="w-3 h-3"></i> CHANNELS
+                    </h3>
+                    <div class="space-y-1">
+                        <button class="w-full text-left px-3 py-2 bg-sidebar-accent text-sidebar-accent-foreground border-l-2 border-primary font-mono text-sm flex items-center justify-between group">
+                            <span># public_grid</span>
+                            <span class="w-2 h-2 bg-primary rounded-full animate-pulse"></span>
+                        </button>
+                        <button class="w-full text-left px-3 py-2 text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/50 border-l-2 border-transparent hover:border-muted font-mono text-sm transition-colors">
+                            <span># black_market</span>
+                        </button>
+                        <button class="w-full text-left px-3 py-2 text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/50 border-l-2 border-transparent hover:border-muted font-mono text-sm transition-colors">
+                            <span># tech_support</span>
+                        </button>
+                        <button class="w-full text-left px-3 py-2 text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/50 border-l-2 border-transparent hover:border-muted font-mono text-sm transition-colors">
+                            <span># job_board</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Active Nodes -->
+                <div>
+                    <h3 class="text-xs font-bold text-muted-foreground mb-3 px-2 flex items-center gap-2">
+                        <i data-lucide="activity" class="w-3 h-3"></i> ACTIVE_NODES
+                    </h3>
+                    <div class="space-y-2">
+                        <div class="flex items-center gap-2 px-2 py-1 opacity-80 hover:opacity-100 cursor-pointer">
+                            <div class="w-2 h-2 bg-accent rotate-45"></div>
+                            <span class="text-sm font-mono text-accent">[ADM] System_Core</span>
+                        </div>
+                        <div class="flex items-center gap-2 px-2 py-1 opacity-80 hover:opacity-100 cursor-pointer">
+                            <div class="w-2 h-2 bg-primary rotate-45"></div>
+                            <span class="text-sm font-mono text-primary">Neon_Samurai</span>
+                        </div>
+                        <div class="flex items-center gap-2 px-2 py-1 opacity-80 hover:opacity-100 cursor-pointer">
+                            <div class="w-2 h-2 bg-secondary rotate-45"></div>
+                            <span class="text-sm font-mono text-secondary">Bit_Runner</span>
+                        </div>
+                        <div class="flex items-center gap-2 px-2 py-1 opacity-50 hover:opacity-100 cursor-pointer">
+                            <div class="w-2 h-2 bg-muted-foreground rotate-45"></div>
+                            <span class="text-sm font-mono text-muted-foreground">Null_Pointer</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- System Stats Footer -->
+            <div class="p-2 border-t border-sidebar-border bg-black/30">
+                <div class="h-1 w-full bg-muted overflow-hidden">
+                    <div class="h-full bg-secondary w-[75%] animate-pulse"></div>
+                </div>
+                <div class="flex justify-between text-[10px] font-mono text-muted-foreground mt-1">
+                    <span>ENCRYPTION</span>
+                    <span>75%</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Chat Area -->
+        <main class="flex-1 flex flex-col bg-background/60 backdrop-blur relative">
+            <!-- Chat Header (Mobile only) -->
+            <div class="md:hidden h-12 border-b border-border flex items-center px-4 justify-between bg-sidebar/80">
+                <span class="font-mono font-bold text-primary"># public_grid</span>
+                <button class="text-muted-foreground"><i data-lucide="menu" class="w-5 h-5"></i></button>
+            </div>
+
+            <!-- Messages Stream -->
+            <div class="flex-1 overflow-y-auto p-4 space-y-6" id="chat-stream">
+                
+                <!-- System Message -->
+                <div class="flex justify-center message-enter">
+                    <div class="bg-primary/10 border border-primary/30 px-4 py-1 text-xs font-mono text-primary">
+                        <span class="mr-2">>>></span> SYSTEM: ENCRYPTION KEY VERIFIED. CONNECTION SECURE.
+                    </div>
+                </div>
+
+                <!-- Message: Other -->
+                <div class="flex gap-4 max-w-3xl message-enter" style="animation-delay: 0.1s">
+                    <div class="w-10 h-10 bg-secondary/20 border border-secondary flex-shrink-0 flex items-center justify-center">
+                        <span class="font-bold text-secondary text-xs">NS</span>
+                    </div>
+                    <div class="flex-1">
+                        <div class="flex items-baseline gap-2 mb-1">
+                            <span class="font-bold text-secondary">Neon_Samurai</span>
+                            <span class="text-[10px] text-muted-foreground font-mono">23:42:01</span>
+                        </div>
+                        <div class="bg-card border-l-2 border-secondary p-3 text-sm shadow-neon-sm relative group">
+                            <div class="absolute -top-1 -right-1 w-2 h-2 border-t border-r border-secondary opacity-50 group-hover:opacity-100 transition-opacity"></div>
+                            <div class="absolute -bottom-1 -left-1 w-2 h-2 border-b border-l border-secondary opacity-50 group-hover:opacity-100 transition-opacity"></div>
+                            <p>Target acquired. The data package is located in Sector 7. I need a distraction.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Message: Other -->
+                <div class="flex gap-4 max-w-3xl message-enter" style="animation-delay: 0.2s">
+                    <div class="w-10 h-10 bg-accent/20 border border-accent flex-shrink-0 flex items-center justify-center">
+                        <span class="font-bold text-accent">BR</span>
+                    </div>
+                    <div class="flex-1">
+                        <div class="flex items-baseline gap-2 mb-1">
+                            <span class="font-bold text-accent">Bit_Runner</span>
+                            <span class="text-[10px] text-muted-foreground font-mono">23:42:45</span>
+                        </div>
+                        <div class="bg-card border-l-2 border-accent p-3 text-sm shadow-neon-sm">
+                            <p>Copy that. I'm uploading a daemon to the local grid. Should cause a blackout in 30 seconds.</p>
+                            <div class="mt-2 p-2 bg-black/30 border border-muted font-mono text-xs text-green-400">
+                                > upload_virus.exe<br>
+                                > [████████░░] 80%
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Message: Self -->
+                <div class="flex flex-row-reverse gap-4 max-w-3xl ml-auto message-enter" style="animation-delay: 0.3s">
+                    <div class="w-10 h-10 bg-primary/20 border border-primary flex-shrink-0 flex items-center justify-center">
+                        <span class="font-bold text-primary">GR</span>
+                    </div>
+                    <div class="flex-1 text-right">
+                        <div class="flex flex-row-reverse items-baseline gap-2 mb-1">
+                            <span class="font-bold text-primary">GHOST_RIDER</span>
+                            <span class="text-[10px] text-muted-foreground font-mono">23:43:12</span>
+                        </div>
+                        <div class="bg-primary/5 border-r-2 border-primary p-3 text-sm shadow-neon-sm text-left inline-block min-w-[200px]">
+                            <p>Don't trigger the ICE. I'm monitoring the network traffic. Stay low.</p>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Input Area -->
+            <div class="p-4 border-t border-border bg-background/80 backdrop-blur">
+                <div class="flex items-end gap-2">
+                    <div class="flex-1 relative group">
+                        <div class="absolute inset-0 bg-primary/20 blur-md opacity-0 group-focus-within:opacity-100 transition-opacity duration-500"></div>
+                        <div class="relative flex items-center bg-input border border-border p-2 focus-within:border-primary focus-within:shadow-neon transition-all duration-300">
+                            <span class="text-primary font-mono mr-2 animate-pulse">></span>
+                            <input type="text" placeholder="Enter command or message..." class="bg-transparent border-none focus:ring-0 w-full text-foreground font-mono text-sm placeholder-muted-foreground/50 h-full py-1">
+                            <div class="flex items-center gap-2 text-muted-foreground">
+                                <button class="hover:text-primary transition-colors"><i data-lucide="paperclip" class="w-4 h-4"></i></button>
+                                <button class="hover:text-primary transition-colors"><i data-lucide="smile" class="w-4 h-4"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                    <button class="h-[42px] px-6 bg-primary text-primary-foreground font-bold uppercase tracking-wider hover:bg-primary/90 hover:shadow-neon transition-all duration-200 flex items-center justify-center border border-primary">
+                        SEND
+                    </button>
+                </div>
+                <div class="flex justify-between mt-1 px-1">
+                    <span class="text-[10px] text-muted-foreground font-mono">MODE: ENCRYPTED</span>
+                    <span class="text-[10px] text-muted-foreground font-mono">CHARS: 0/500</span>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // Initialize Lucide Icons
+        lucide.createIcons();
+
+        // Simple Clock Script
+        function updateClock() {
+            const now = new Date();
+            const timeString = now.toISOString().replace('T', ' ').substring(0, 19);
+            const cyberpunkTime = timeString.replace(/^\d{4}/, '2077');
+            document.getElementById('clock').innerText = cyberpunkTime;
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+    </script>
+</body>
+</html>

@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>SSE 客户端学习</title>
+    <style>
+        body { font-family: Arial; padding: 20px; max-width: 800px; margin: 0 auto; }
+        h1 { color: #006633; }
+        .demo-box { border: 2px solid #ddd; padding: 20px; margin: 20px 0; border-radius: 8px; }
+        button { padding: 10px 20px; margin: 5px; cursor: pointer; background: #006633; color: white; border: none; border-radius: 4px; }
+        button:hover { background: #004d26; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        .code { background: #f0f0f0; padding: 15px; font-family: monospace; margin: 10px 0; border-radius: 4px; white-space: pre-wrap; }
+        #messages { 
+            background: #f5f5f5; 
+            padding: 15px; 
+            height: 200px; 
+            overflow-y: auto; 
+            border-radius: 4px;
+            font-family: monospace;
+        }
+        .msg { padding: 5px 0; border-bottom: 1px solid #ddd; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 4px; }
+        .connected { background: #d4edda; color: #155724; }
+        .disconnected { background: #f8d7da; color: #721c24; }
+        .connecting { background: #fff3cd; color: #856404; }
+    </style>
+</head>
+<body>
+    <h1>📡 SSE 客户端 (EventSource)</h1>
+    <p>学习如何用 JavaScript 接收服务器推送的消息。</p>
+    
+    <!-- 核心代码展示 -->
+    <div class="demo-box">
+        <h3>核心代码</h3>
+        <div class="code">// 创建 SSE 连接
+const eventSource = new EventSource('/events');
+
+// 连接成功
+eventSource.onopen = function() {
+    console.log('已连接');
+};
+
+// 接收消息
+eventSource.onmessage = function(event) {
+    console.log('收到:', event.data);
+};
+
+// 连接错误
+eventSource.onerror = function() {
+    console.log('连接断开，将自动重连...');
+};
+
+// 关闭连接
+eventSource.close();</div>
+    </div>
+    
+    <!-- 实际演示 -->
+    <div class="demo-box">
+        <h3>🔴 实时演示</h3>
+        <p>先运行 <code>ChatSSEServer.java</code> 或 <code>SimpleSSEServer.java</code></p>
+        
+        <div>
+            <label>服务器地址:</label>
+            <input type="text" id="serverUrl" value="http://localhost:8080/events" style="width: 300px; padding: 8px;">
+        </div>
+        <br>
+        
+        <button id="connectBtn" onclick="connect()">连接</button>
+        <button id="disconnectBtn" onclick="disconnect()" disabled>断开</button>
+        
+        <div id="status" class="status disconnected">未连接</div>
+        
+        <h4>接收到的消息:</h4>
+        <div id="messages"></div>
+        <button onclick="clearMessages()">清空消息</button>
+    </div>
+    
+    <!-- EventSource 状态说明 -->
+    <div class="demo-box">
+        <h3>EventSource 状态码</h3>
+        <table border="1" style="border-collapse: collapse; width: 100%;">
+            <tr style="background: #f5f5f5;">
+                <th style="padding: 10px;">状态</th>
+                <th style="padding: 10px;">值</th>
+                <th style="padding: 10px;">说明</th>
+            </tr>
+            <tr>
+                <td style="padding: 10px;">CONNECTING</td>
+                <td style="padding: 10px;">0</td>
+                <td style="padding: 10px;">正在连接</td>
+            </tr>
+            <tr>
+                <td style="padding: 10px;">OPEN</td>
+                <td style="padding: 10px;">1</td>
+                <td style="padding: 10px;">已连接</td>
+            </tr>
+            <tr>
+                <td style="padding: 10px;">CLOSED</td>
+                <td style="padding: 10px;">2</td>
+                <td style="padding: 10px;">已关闭</td>
+            </tr>
+        </table>
+        <p id="currentState"></p>
+    </div>
+    
+    <!-- 自定义事件 -->
+    <div class="demo-box">
+        <h3>自定义事件</h3>
+        <div class="code">// 服务器发送:
+// event: online
+// data: {"count": 5}
+
+// 客户端监听:
+eventSource.addEventListener('online', function(event) {
+    const data = JSON.parse(event.data);
+    console.log('在线人数:', data.count);
+});</div>
+    </div>
+
+    <script>
+        let eventSource = null;
+        
+        function connect() {
+            const url = document.getElementById('serverUrl').value;
+            const statusDiv = document.getElementById('status');
+            const connectBtn = document.getElementById('connectBtn');
+            const disconnectBtn = document.getElementById('disconnectBtn');
+            
+            addMessage('[客户端] 正在连接 ' + url);
+            statusDiv.textContent = '连接中...';
+            statusDiv.className = 'status connecting';
+            
+            try {
+                eventSource = new EventSource(url);
+                
+                eventSource.onopen = function() {
+                    addMessage('[客户端] ✅ 连接成功!');
+                    statusDiv.textContent = '✅ 已连接';
+                    statusDiv.className = 'status connected';
+                    connectBtn.disabled = true;
+                    disconnectBtn.disabled = false;
+                    updateState();
+                };
+                
+                eventSource.onmessage = function(event) {
+                    addMessage('[服务器] ' + event.data);
+                };
+                
+                // 监听自定义事件
+                eventSource.addEventListener('info', function(event) {
+                    addMessage('[INFO] ' + event.data);
+                });
+                
+                eventSource.addEventListener('online', function(event) {
+                    addMessage('[在线] ' + event.data);
+                });
+                
+                eventSource.onerror = function() {
+                    addMessage('[客户端] ❌ 连接错误/断开');
+                    statusDiv.textContent = '❌ 连接断开 (将自动重连...)';
+                    statusDiv.className = 'status disconnected';
+                    updateState();
+                };
+                
+            } catch (error) {
+                addMessage('[客户端] 错误: ' + error.message);
+                statusDiv.textContent = '❌ 连接失败';
+                statusDiv.className = 'status disconnected';
+            }
+        }
+        
+        function disconnect() {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+                
+                addMessage('[客户端] 已主动断开连接');
+                document.getElementById('status').textContent = '已断开';
+                document.getElementById('status').className = 'status disconnected';
+                document.getElementById('connectBtn').disabled = false;
+                document.getElementById('disconnectBtn').disabled = true;
+                updateState();
+            }
+        }
+        
+        function addMessage(text) {
+            const messagesDiv = document.getElementById('messages');
+            const time = new Date().toLocaleTimeString();
+            const div = document.createElement('div');
+            div.className = 'msg';
+            div.textContent = '[' + time + '] ' + text;
+            messagesDiv.appendChild(div);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+        
+        function clearMessages() {
+            document.getElementById('messages').innerHTML = '';
+        }
+        
+        function updateState() {
+            const stateDiv = document.getElementById('currentState');
+            if (eventSource) {
+                const states = ['CONNECTING', 'OPEN', 'CLOSED'];
+                stateDiv.textContent = '当前状态: ' + states[eventSource.readyState] + 
+                    ' (' + eventSource.readyState + ')';
+            } else {
+                stateDiv.textContent = '当前状态: 未创建 EventSource';
+            }
+        }
+        
+        // 页面加载时更新状态
+        updateState();
+    </script>
+</body>
+</html>

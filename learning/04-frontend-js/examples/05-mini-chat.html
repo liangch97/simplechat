@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>迷你聊天室</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { 
+            font-family: Arial, sans-serif; 
+            background: linear-gradient(135deg, #006633 0%, #004d26 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .chat-container {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            width: 100%;
+            max-width: 500px;
+            overflow: hidden;
+        }
+        .chat-header {
+            background: #006633;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        .chat-header h1 { font-size: 1.5em; }
+        .status {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            margin-top: 8px;
+        }
+        .status.online { background: #28a745; }
+        .status.offline { background: #dc3545; }
+        .status.connecting { background: #ffc107; color: #333; }
+        
+        .login-form {
+            padding: 30px;
+            text-align: center;
+        }
+        .login-form input {
+            width: 100%;
+            padding: 12px;
+            font-size: 16px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+        .login-form input:focus {
+            outline: none;
+            border-color: #006633;
+        }
+        .login-form button {
+            width: 100%;
+            padding: 12px;
+            font-size: 16px;
+            background: #006633;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        .login-form button:hover { background: #004d26; }
+        
+        .chat-area { display: none; }
+        .chat-area.active { display: block; }
+        
+        .messages {
+            height: 350px;
+            overflow-y: auto;
+            padding: 15px;
+            background: #f5f5f5;
+        }
+        .message {
+            margin: 8px 0;
+            padding: 10px 15px;
+            border-radius: 12px;
+            max-width: 80%;
+            animation: slideIn 0.3s ease;
+        }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .message.other {
+            background: white;
+            border: 1px solid #ddd;
+        }
+        .message.self {
+            background: #d4edda;
+            margin-left: auto;
+        }
+        .message.system {
+            background: #fff3cd;
+            text-align: center;
+            max-width: 100%;
+            font-size: 0.9em;
+            color: #856404;
+        }
+        .message-sender {
+            font-weight: bold;
+            color: #006633;
+            font-size: 0.85em;
+        }
+        .message-time {
+            font-size: 0.75em;
+            color: #999;
+            margin-left: 10px;
+        }
+        .message-text { margin-top: 4px; }
+        
+        .input-area {
+            display: flex;
+            padding: 15px;
+            gap: 10px;
+            border-top: 1px solid #ddd;
+        }
+        .input-area input {
+            flex: 1;
+            padding: 12px 16px;
+            font-size: 16px;
+            border: 2px solid #ddd;
+            border-radius: 24px;
+        }
+        .input-area input:focus {
+            outline: none;
+            border-color: #006633;
+        }
+        .input-area button {
+            padding: 12px 24px;
+            background: #006633;
+            color: white;
+            border: none;
+            border-radius: 24px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .input-area button:hover { background: #004d26; }
+        
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-header">
+            <h1>💬 迷你聊天室</h1>
+            <div id="status" class="status connecting">连接中...</div>
+        </div>
+        
+        <!-- 登录表单 -->
+        <div class="login-form" id="loginForm">
+            <h3>欢迎！请输入昵称</h3>
+            <br>
+            <input type="text" id="nicknameInput" placeholder="你的昵称" maxlength="20">
+            <button onclick="login()">进入聊天室</button>
+        </div>
+        
+        <!-- 聊天区域 -->
+        <div class="chat-area" id="chatArea">
+            <div class="messages" id="messages"></div>
+            <div class="input-area">
+                <input type="text" id="messageInput" placeholder="输入消息..." maxlength="200">
+                <button onclick="send()">发送</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ============ 配置 ============
+        const SERVER_URL = 'http://localhost:8080';
+        
+        // ============ 状态 ============
+        let nickname = '';
+        let eventSource = null;
+        
+        // ============ DOM 元素 ============
+        const statusDiv = document.getElementById('status');
+        const loginForm = document.getElementById('loginForm');
+        const chatArea = document.getElementById('chatArea');
+        const messagesDiv = document.getElementById('messages');
+        const nicknameInput = document.getElementById('nicknameInput');
+        const messageInput = document.getElementById('messageInput');
+        
+        // ============ 登录 ============
+        function login() {
+            const name = nicknameInput.value.trim();
+            if (name.length < 1) {
+                alert('请输入昵称');
+                return;
+            }
+            
+            nickname = name;
+            loginForm.classList.add('hidden');
+            chatArea.classList.add('active');
+            
+            // 连接 SSE
+            connect();
+            
+            // 聚焦输入框
+            messageInput.focus();
+        }
+        
+        // Enter 键登录
+        nicknameInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') login();
+        });
+        
+        // ============ SSE 连接 ============
+        function connect() {
+            updateStatus('connecting', '连接中...');
+            
+            eventSource = new EventSource(SERVER_URL + '/events');
+            
+            eventSource.onopen = () => {
+                updateStatus('online', '已连接');
+                addSystemMessage('已连接到服务器');
+            };
+            
+            eventSource.onmessage = (event) => {
+                handleMessage(event.data);
+            };
+            
+            eventSource.onerror = () => {
+                updateStatus('offline', '已断开');
+                addSystemMessage('连接断开，尝试重连...');
+            };
+        }
+        
+        function updateStatus(type, text) {
+            statusDiv.textContent = text;
+            statusDiv.className = 'status ' + type;
+        }
+        
+        // ============ 消息处理 ============
+        function handleMessage(data) {
+            // 解析消息格式: [HH:mm:ss] 昵称: 内容
+            const match = data.match(/^\[(\d{2}:\d{2}:\d{2})\]\s+(.+?):\s+(.+)$/);
+            
+            if (match) {
+                const [, time, sender, text] = match;
+                
+                if (sender === '系统') {
+                    addSystemMessage(text);
+                } else {
+                    addChatMessage(sender, text, time);
+                }
+            } else if (data.includes('[系统]')) {
+                addSystemMessage(data.replace('[系统]', '').trim());
+            } else {
+                addSystemMessage(data);
+            }
+        }
+        
+        function addChatMessage(sender, text, time) {
+            const isSelf = sender === nickname;
+            
+            const div = document.createElement('div');
+            div.className = 'message ' + (isSelf ? 'self' : 'other');
+            div.innerHTML = `
+                <div>
+                    <span class="message-sender">${escapeHtml(sender)}</span>
+                    <span class="message-time">${time}</span>
+                </div>
+                <div class="message-text">${escapeHtml(text)}</div>
+            `;
+            
+            messagesDiv.appendChild(div);
+            scrollToBottom();
+        }
+        
+        function addSystemMessage(text) {
+            const div = document.createElement('div');
+            div.className = 'message system';
+            div.textContent = text;
+            messagesDiv.appendChild(div);
+            scrollToBottom();
+        }
+        
+        function scrollToBottom() {
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // ============ 发送消息 ============
+        async function send() {
+            const message = messageInput.value.trim();
+            if (!message) return;
+            
+            try {
+                const response = await fetch(SERVER_URL + '/send', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: nickname,
+                        message: message
+                    })
+                });
+                
+                if (response.ok) {
+                    messageInput.value = '';
+                } else {
+                    alert('发送失败');
+                }
+            } catch (error) {
+                alert('发送失败: ' + error.message);
+            }
+        }
+        
+        // Enter 键发送
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') send();
+        });
+    </script>
+</body>
+</html>
