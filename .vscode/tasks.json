@@ -1,0 +1,14 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "generate_theme",
+			"type": "shell",
+			"command": "echo \"Theme generation started\"",
+			"args": [],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "design"
+		}
+	]
+}

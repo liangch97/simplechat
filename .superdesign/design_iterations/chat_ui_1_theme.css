@@ -1,0 +1,50 @@
+
+/* Theme Switcher */
+.theme-btn {
+    position: relative;
+}
+
+.theme-panel {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 0.5rem;
+    background-color: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 0.75rem;
+    box-shadow: var(--shadow-lg);
+    display: none;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.5rem;
+    z-index: 50;
+    min-width: 150px;
+    animation: fadeIn 0.2s ease-out;
+}
+
+.theme-panel.active {
+    display: grid;
+}
+
+.theme-option {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background-color 0.2s;
+    font-size: 0.85rem;
+    color: var(--foreground);
+}
+
+.theme-option:hover {
+    background-color: var(--muted);
+}
+
+.theme-color {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+}

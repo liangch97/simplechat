@@ -2,126 +2,291 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#006633">
     <title>SYSU Chat - 中山大学在线聊天室</title>
     <meta name="description" content="SYSU Chat - 中山大学学生在线聊天交流平台">
     <meta name="keywords" content="中山大学, 聊天室, SYSU, 在线交流">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="apple-touch-icon" href="favicon.svg">
+    <link rel="manifest" href="manifest.json">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- Lucide Icons (本地) -->
+    <script src="js/lucide.min.js"></script>
+    <link rel="stylesheet" href="css/style.css?v=9">
 </head>
 <body>
     <div class="app-container">
-        <!-- 头部导航 -->
-        <header class="header">
-            <div class="logo">
-                <img src="images/logo.svg" alt="SYSU Chat" class="logo-img">
-                <span class="logo-text">SYSU Chat</span>
+        <!-- 侧边栏遮罩（移动端） -->
+        <div class="sidebar-overlay" id="sidebarOverlay"></div>
+        
+        <!-- Sidebar (用户列表) -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-title">
+                    <i data-lucide="graduation-cap"></i>
+                    SYSU Chat
+                </div>
             </div>
-            <nav class="nav">
-                <a href="#" class="nav-link active">聊天室</a>
-                <a href="#about" class="nav-link">关于</a>
-            </nav>
-            <div class="user-info" id="userInfo">
-                <span class="user-avatar" id="userAvatar">?</span>
-                <span class="user-name" id="userName">未登录</span>
+            <div class="sidebar-section">
+                <div class="sidebar-section-header">
+                    <span class="online-count" id="onlineCount">在线: --</span>
+                </div>
             </div>
-        </header>
+            <div class="user-list" id="userList">
+                <!-- 用户列表将通过 JS 动态渲染 -->
+            </div>
+            <div class="sidebar-footer">
+                <button class="btn btn-outline btn-sm" id="logoutBtn">
+                    <i data-lucide="log-out"></i>
+                    退出登录
+                </button>
+            </div>
+        </aside>
 
-        <!-- 主内容区 -->
-        <main class="main-content">
-            <!-- 登录面板 -->
-            <div class="login-panel" id="loginPanel">
-                <div class="login-card">
-                    <div class="login-header">
-                        <img src="images/logo.svg" alt="SYSU Chat" class="login-logo">
-                        <h1>欢迎来到 SYSU Chat</h1>
-                        <p>中山大学在线聊天交流平台</p>
+        <!-- 主聊天区域 -->
+        <main class="chat-area">
+            <header class="chat-header">
+                <div class="chat-header-info">
+                    <h2>💬 公共聊天室</h2>
+                    <div class="chat-status">
+                        <span class="status-dot" id="statusDot"></span>
+                        <span class="status-text" id="statusText">连接中...</span>
                     </div>
-                    <form id="loginForm" class="login-form">
-                        <div class="form-group">
-                            <label for="nickname">输入你的昵称</label>
-                            <input 
-                                type="text" 
-                                id="nickname" 
-                                name="nickname" 
-                                placeholder="请输入昵称（2-20个字符）"
-                                maxlength="20"
-                                minlength="2"
-                                required
-                                autocomplete="off"
-                            >
-                        </div>
-                        <button type="submit" class="btn btn-primary btn-block">
-                            进入聊天室
+                </div>
+                <div class="chat-header-actions">
+                    <div class="theme-btn-wrapper">
+                        <button class="icon-btn" id="themeBtn" title="切换主题">
+                            <i data-lucide="palette"></i>
                         </button>
-                    </form>
-                    <div class="login-footer">
-                        <p>💡 提示：请文明聊天，遵守社区规范</p>
+                        <div class="theme-panel" id="themePanel">
+                            <div class="theme-option" data-theme="default">
+                                <div class="theme-color" style="background-color: #006633;"></div>
+                                SYSU Green
+                            </div>
+                            <div class="theme-option" data-theme="ocean">
+                                <div class="theme-color" style="background-color: #0077cc;"></div>
+                                Ocean Blue
+                            </div>
+                            <div class="theme-option" data-theme="purple">
+                                <div class="theme-color" style="background-color: #722ed1;"></div>
+                                Elegant Purple
+                            </div>
+                            <div class="theme-option" data-theme="sunset">
+                                <div class="theme-color" style="background-color: #fa541c;"></div>
+                                Warm Sunset
+                            </div>
+                        </div>
                     </div>
+                    <button class="icon-btn" id="menuBtn" title="菜单">
+                        <i data-lucide="menu"></i>
+                    </button>
+                </div>
+            </header>
+
+            <div class="messages-container" id="messagesContainer">
+                <div class="welcome-message">
+                    <p>👋 欢迎来到 SYSU Chat 公共聊天室！</p>
+                    <p>开始和大家聊天吧~</p>
                 </div>
             </div>
 
-            <!-- 聊天面板 -->
-            <div class="chat-panel hidden" id="chatPanel">
-                <!-- 侧边栏 -->
-                <aside class="sidebar">
-                    <div class="sidebar-header">
-                        <h3>🏠 大厅</h3>
-                        <span class="online-count" id="onlineCount">在线: --</span>
-                    </div>
-                    <div class="room-list">
-                        <div class="room-item active">
-                            <span class="room-icon">💬</span>
-                            <span class="room-name">公共聊天室</span>
-                        </div>
-                    </div>
-                    <div class="sidebar-footer">
-                        <button class="btn btn-outline btn-sm" id="logoutBtn">
-                            退出登录
-                        </button>
-                    </div>
-                </aside>
+            <!-- @提及用户列表弹窗 -->
+            <div class="mention-popup hidden" id="mentionPopup">
+                <div class="mention-list" id="mentionList"></div>
+            </div>
 
-                <!-- 聊天区域 -->
-                <div class="chat-area">
-                    <div class="chat-header">
-                        <h2>💬 公共聊天室</h2>
-                        <div class="chat-status">
-                            <span class="status-dot" id="statusDot"></span>
-                            <span class="status-text" id="statusText">连接中...</span>
+            <div class="input-area">
+                <!-- 表情选择器弹窗 (移动到input-area内部以正确定位) -->
+                <div class="emoji-popup hidden" id="emojiPopup">
+                    <div class="emoji-header">
+                        <div class="emoji-tabs">
+                            <button class="emoji-tab active" data-tab="emoji">😊 表情</button>
+                            <button class="emoji-tab" data-tab="sticker">🎨 表情包</button>
+                        </div>
+                        <button class="emoji-close" id="emojiClose">&times;</button>
+                    </div>
+                    <div class="emoji-content">
+                        <div class="emoji-panel active" id="emojiPanel">
+                            <div class="emoji-list" id="emojiList"></div>
+                        </div>
+                        <div class="emoji-panel" id="stickerPanel">
+                            <div class="sticker-upload">
+                                <button type="button" class="btn btn-outline btn-sm" id="uploadStickerBtn">
+                                    ➕ 上传表情包
+                                </button>
+                                <input type="file" id="stickerInput" accept="image/*" multiple style="display:none">
+                            </div>
+                            <div class="sticker-list" id="stickerList">
+                                <div class="sticker-empty">暂无自定义表情包<br>点击上方按钮上传</div>
+                            </div>
                         </div>
                     </div>
+                </div>
+                
+                <form id="messageForm" class="message-form">
+                    <button type="button" class="icon-btn" id="emojiBtn" title="表情">
+                        <i data-lucide="smile"></i>
+                        <span class="icon-fallback">😊</span>
+                    </button>
+                    <button type="button" class="icon-btn" id="imageBtn" title="发送图片">
+                        <i data-lucide="image"></i>
+                        <span class="icon-fallback">🖼️</span>
+                    </button>
+                    <button type="button" class="icon-btn" id="fileBtn" title="发送文件">
+                        <i data-lucide="paperclip"></i>
+                        <span class="icon-fallback">📎</span>
+                    </button>
                     
-                    <div class="messages-container" id="messagesContainer">
-                        <div class="welcome-message">
-                            <p>👋 欢迎来到 SYSU Chat 公共聊天室！</p>
-                            <p>开始和大家聊天吧~</p>
-                        </div>
+                    <div class="input-wrapper">
+                        <input 
+                            type="text" 
+                            id="messageInput"
+                            class="chat-input" 
+                            placeholder="输入消息... (输入@提及用户，按 Enter 发送)"
+                            maxlength="500"
+                            autocomplete="off"
+                        >
                     </div>
 
-                    <div class="chat-input-area">
-                        <form id="messageForm" class="message-form">
-                            <input 
-                                type="text" 
-                                id="messageInput" 
-                                placeholder="输入消息... (按 Enter 发送)"
-                                maxlength="500"
-                                autocomplete="off"
-                            >
-                            <button type="submit" class="btn btn-primary send-btn">
-                                <span class="send-icon">📤</span>
-                                发送
-                            </button>
-                        </form>
+                    <button type="submit" class="send-btn">
+                        <i data-lucide="send"></i>
+                        <span class="icon-fallback">➤</span>
+                    </button>
+                </form>
+                <!-- 隐藏的文件输入 -->
+                <input type="file" id="imageInput" accept="image/*" style="display:none">
+                <input type="file" id="fileInput" style="display:none">
+                <!-- 上传进度显示 -->
+                <div class="upload-progress hidden" id="uploadProgress">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill"></div>
                     </div>
+                    <span class="progress-text" id="progressText">上传中...</span>
                 </div>
             </div>
         </main>
 
-        <!-- 底部 -->
-        <footer class="footer">
-            <p>&copy; 2025 SYSU Chat (sysu.asia) - 中山大学在线聊天平台</p>
-        </footer>
+        <!-- 登录覆盖层 -->
+        <div class="login-overlay" id="loginPanel">
+            <div class="login-card">
+                <div class="login-header">
+                    <img src="images/logo.svg" alt="SYSU Chat" class="login-logo">
+                    <h1>SYSU Chat</h1>
+                    <p>博学 审问 慎思 明辨 笃行</p>
+                </div>
+                
+                <!-- 登录表单 -->
+                <form id="loginForm" class="login-form">
+                    <div class="form-group">
+                        <label class="form-label" for="loginUsername">用户名</label>
+                        <input 
+                            type="text" 
+                            id="loginUsername"
+                            class="form-input" 
+                            name="username" 
+                            placeholder="请输入用户名"
+                            maxlength="20"
+                            minlength="3"
+                            required
+                            autocomplete="username"
+                        >
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="loginPassword">密码</label>
+                        <input 
+                            type="password" 
+                            id="loginPassword"
+                            class="form-input" 
+                            name="password" 
+                            placeholder="请输入密码"
+                            minlength="6"
+                            required
+                            autocomplete="current-password"
+                        >
+                    </div>
+                    <button type="submit" class="btn-primary">
+                        登录
+                    </button>
+                </form>
+                
+                <!-- 注册表单 (默认隐藏) -->
+                <form id="registerForm" class="login-form hidden">
+                    <div class="form-group">
+                        <label class="form-label" for="regUsername">用户名</label>
+                        <input 
+                            type="text" 
+                            id="regUsername"
+                            class="form-input" 
+                            name="username" 
+                            placeholder="3-20个字符"
+                            maxlength="20"
+                            minlength="3"
+                            required
+                            autocomplete="username"
+                        >
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="regPassword">密码</label>
+                        <input 
+                            type="password" 
+                            id="regPassword"
+                            class="form-input" 
+                            name="password" 
+                            placeholder="至少6个字符"
+                            minlength="6"
+                            required
+                            autocomplete="new-password"
+                        >
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="regNickname">昵称</label>
+                        <input 
+                            type="text" 
+                            id="regNickname"
+                            class="form-input" 
+                            name="nickname" 
+                            placeholder="2-20个字符（聊天室显示名）"
+                            maxlength="20"
+                            minlength="2"
+                            required
+                            autocomplete="off"
+                        >
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="regSecretKey">注册秘钥</label>
+                        <input 
+                            type="password" 
+                            id="regSecretKey"
+                            class="form-input" 
+                            name="secretKey" 
+                            placeholder="请输入内部通行密钥"
+                            required
+                            autocomplete="off"
+                        >
+                        <small class="form-hint">仅限内部成员使用</small>
+                    </div>
+                    <button type="submit" class="btn-primary">
+                        注册
+                    </button>
+                </form>
+                
+                <div class="login-switch">
+                    <span id="switchToRegister">没有账号？<a href="#" id="switchToRegisterLink">立即注册</a></span>
+                    <span id="switchToLogin" class="hidden">已有账号？<a href="#" id="switchToLoginLink">立即登录</a></span>
+                </div>
+                
+                <div class="login-footer">
+                    <p>💡 提示：请文明聊天，遵守社区规范</p>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- 关于弹窗 -->
@@ -144,7 +309,14 @@
         </div>
     </div>
 
-    <script src="js/config.js"></script>
-    <script src="js/chat.js"></script>
+    <script src="js/config.js?v=2"></script>
+    <script src="js/chat.js?v=14"></script>
+    <script>
+        // 初始化 Lucide 图标
+        lucide.createIcons();
+        
+        // 注意：移动端菜单切换已在 chat.js 中的 initMobileSidebar() 处理
+        // 这里不再重复绑定事件，避免冲突
+    </script>
 </body>
 </html>

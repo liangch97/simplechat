@@ -1,0 +1,132 @@
+:root {
+  /* Base Colors - SYSU Green Palette */
+  --primary: oklch(0.45 0.14 145); /* Deep Green */
+  --primary-foreground: oklch(0.98 0 0);
+  --primary-hover: oklch(0.40 0.14 145);
+  
+  --background: oklch(0.98 0.01 145); /* Very light green tint */
+  --foreground: oklch(0.20 0.02 145);
+  
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.20 0.02 145);
+  
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.20 0.02 145);
+  
+  --secondary: oklch(0.95 0.03 145);
+  --secondary-foreground: oklch(0.35 0.10 145);
+  
+  --muted: oklch(0.96 0.01 145);
+  --muted-foreground: oklch(0.55 0.04 145);
+  
+  --accent: oklch(0.92 0.05 145);
+  --accent-foreground: oklch(0.35 0.10 145);
+  
+  --destructive: oklch(0.6 0.15 25);
+  --destructive-foreground: oklch(0.98 0 0);
+  
+  --border: oklch(0.90 0.02 145);
+  --input: oklch(0.90 0.02 145);
+  --ring: oklch(0.45 0.14 145);
+  
+  /* Message Bubbles */
+  --msg-self-bg: var(--primary);
+  --msg-self-fg: var(--primary-foreground);
+  --msg-other-bg: oklch(1 0 0);
+  --msg-other-fg: var(--foreground);
+  
+  /* Radius */
+  --radius-lg: 1rem;
+  --radius-md: 0.75rem;
+  --radius-sm: 0.5rem;
+  
+  /* Shadows */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  
+  /* Font */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+.dark {
+  --background: oklch(0.15 0.02 145);
+  --foreground: oklch(0.98 0.01 145);
+  
+  --card: oklch(0.20 0.03 145);
+  --card-foreground: oklch(0.98 0.01 145);
+  
+  --popover: oklch(0.20 0.03 145);
+  --popover-foreground: oklch(0.98 0.01 145);
+  
+  --secondary: oklch(0.25 0.04 145);
+  --secondary-foreground: oklch(0.98 0.01 145);
+  
+  --muted: oklch(0.25 0.04 145);
+  --muted-foreground: oklch(0.70 0.04 145);
+  
+  --accent: oklch(0.25 0.04 145);
+  --accent-foreground: oklch(0.98 0.01 145);
+  
+  --border: oklch(0.30 0.04 145);
+  --input: oklch(0.30 0.04 145);
+  
+  --msg-self-bg: var(--primary);
+  --msg-self-fg: var(--primary-foreground);
+  --msg-other-bg: oklch(0.25 0.04 145);
+  --msg-other-fg: var(--foreground);
+}
+
+/* Theme: Ocean Blue */
+[data-theme="ocean"] {
+  --primary: oklch(0.45 0.14 250);
+  --primary-foreground: oklch(0.98 0 0);
+  --primary-hover: oklch(0.40 0.14 250);
+  --background: oklch(0.98 0.01 250);
+  --foreground: oklch(0.20 0.02 250);
+  --secondary: oklch(0.95 0.03 250);
+  --secondary-foreground: oklch(0.35 0.10 250);
+  --muted: oklch(0.96 0.01 250);
+  --muted-foreground: oklch(0.55 0.04 250);
+  --accent: oklch(0.92 0.05 250);
+  --accent-foreground: oklch(0.35 0.10 250);
+  --border: oklch(0.90 0.02 250);
+  --input: oklch(0.90 0.02 250);
+  --ring: oklch(0.45 0.14 250);
+}
+
+/* Theme: Elegant Purple */
+[data-theme="purple"] {
+  --primary: oklch(0.45 0.14 300);
+  --primary-foreground: oklch(0.98 0 0);
+  --primary-hover: oklch(0.40 0.14 300);
+  --background: oklch(0.99 0.01 300);
+  --foreground: oklch(0.20 0.02 300);
+  --secondary: oklch(0.96 0.03 300);
+  --secondary-foreground: oklch(0.35 0.10 300);
+  --muted: oklch(0.97 0.01 300);
+  --muted-foreground: oklch(0.55 0.04 300);
+  --accent: oklch(0.94 0.05 300);
+  --accent-foreground: oklch(0.35 0.10 300);
+  --border: oklch(0.92 0.02 300);
+  --input: oklch(0.92 0.02 300);
+  --ring: oklch(0.45 0.14 300);
+}
+
+/* Theme: Warm Sunset */
+[data-theme="sunset"] {
+  --primary: oklch(0.50 0.15 40);
+  --primary-foreground: oklch(0.98 0 0);
+  --primary-hover: oklch(0.45 0.15 40);
+  --background: oklch(0.99 0.01 40);
+  --foreground: oklch(0.20 0.02 40);
+  --secondary: oklch(0.96 0.03 40);
+  --secondary-foreground: oklch(0.35 0.10 40);
+  --muted: oklch(0.97 0.01 40);
+  --muted-foreground: oklch(0.55 0.04 40);
+  --accent: oklch(0.94 0.05 40);
+  --accent-foreground: oklch(0.35 0.10 40);
+  --border: oklch(0.92 0.02 40);
+  --input: oklch(0.92 0.02 40);
+  --ring: oklch(0.50 0.15 40);
+}

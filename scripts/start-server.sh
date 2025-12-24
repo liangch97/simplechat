@@ -12,7 +12,7 @@ echo ""
 cd "$(dirname "$0")/.."
 
 # 设置默认端口
-PORT=${1:-7070}
+PORT=${1:-8080}
 
 # 检查 Java
 if ! command -v java &> /dev/null; then
@@ -23,16 +23,26 @@ fi
 # 创建输出目录
 mkdir -p out
 
-echo "[1/3] 正在编译服务器..."
-javac -encoding UTF-8 -d out src/WebChatServer.java
+echo "[1/4] 正在编译服务器..."
+mkdir -p lib >/dev/null 2>&1 || true
+javac -encoding UTF-8 -d out -cp "lib/*" src/util/Env.java src/db/Db.java src/db/MessageDao.java src/WebChatServer.java
 
 if [ $? -ne 0 ]; then
-    echo "[错误] 编译失败"
-    exit 1
+        echo "[错误] 编译失败"
+        exit 1
 fi
 
-echo "[2/3] 编译成功！"
-echo "[3/3] 正在启动服务器 (端口: $PORT)..."
-echo ""
+echo "[2/4] 编译成功！"
 
-java -cp out WebChatServer $PORT
+# 可选：启动 cloudflared（保持与 Windows 脚本一致的步骤计数）
+if command -v cloudflared >/dev/null 2>&1; then
+    echo "[3/4] 正在启动 Cloudflare 隧道..."
+    cloudflared tunnel run &
+    sleep 2
+else
+    echo "[3/4] 未找到 cloudflared，跳过隧道启动"
+fi
+
+echo "[4/4] 正在启动服务器 (端口: $PORT)..."
+echo ""
+java -cp "out:lib/*" WebChatServer $PORT

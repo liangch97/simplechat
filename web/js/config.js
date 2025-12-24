@@ -16,15 +16,25 @@ const CONFIG = {
     api: {
         // 开发环境
         development: {
-            baseUrl: 'http://localhost:7070',
+            baseUrl: 'http://localhost:8080',
             eventsEndpoint: '/events',
-            sendEndpoint: '/send'
+            sendEndpoint: '/send',
+            historyEndpoint: '/api/history',
+            registerEndpoint: '/api/register',
+            loginEndpoint: '/api/login',
+            verifyEndpoint: '/api/verify',
+            uploadEndpoint: '/api/upload'
         },
-        // 生产环境 - 当域名启用后使用
+        // 生产环境 - 通过 Cloudflare Tunnel 访问
         production: {
-            baseUrl: 'https://sysu.asia:7070',
+            baseUrl: '',  // 使用相对路径，自动继承当前协议和域名
             eventsEndpoint: '/events',
-            sendEndpoint: '/send'
+            sendEndpoint: '/send',
+            historyEndpoint: '/api/history',
+            registerEndpoint: '/api/register',
+            loginEndpoint: '/api/login',
+            verifyEndpoint: '/api/verify',
+            uploadEndpoint: '/api/upload'
         }
     },
 
@@ -56,7 +66,8 @@ const CONFIG = {
 // 根据当前域名自动切换环境
 if (typeof window !== 'undefined') {
     if (window.location.hostname === 'sysu.asia' || 
-        window.location.hostname === 'www.sysu.asia') {
+        window.location.hostname === 'www.sysu.asia' ||
+        window.location.hostname === 'chat.sysu.asia') {
         CONFIG.env = 'production';
     }
 }

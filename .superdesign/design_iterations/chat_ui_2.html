@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SimpleChat - SYSU Modern</title>
+    <link rel="stylesheet" href="chat_ui_1.css">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+</head>
+<body>
+
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-title">
+                    <i data-lucide="graduation-cap" color="var(--primary)"></i>
+                    SYSU Chat
+                </div>
+            </div>
+            <div class="user-list">
+                <div class="user-item">
+                    <div class="user-avatar">A</div>
+                    <div class="user-info">
+                        <span class="user-name">Alice</span>
+                        <span class="user-status">在线</span>
+                    </div>
+                </div>
+                <div class="user-item">
+                    <div class="user-avatar" style="background-color: var(--secondary); color: var(--secondary-foreground)">B</div>
+                    <div class="user-info">
+                        <span class="user-name">Bob</span>
+                        <span class="user-status">忙碌</span>
+                    </div>
+                </div>
+                <div class="user-item">
+                    <div class="user-avatar" style="background-color: var(--accent); color: var(--accent-foreground)">C</div>
+                    <div class="user-info">
+                        <span class="user-name">Charlie</span>
+                        <span class="user-status">离线</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Chat Area -->
+        <main class="chat-area">
+            <header class="chat-header">
+                <div class="chat-header-info">
+                    <h2>公共聊天室</h2>
+                    <p>3 人在线</p>
+                </div>
+                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                    <div class="theme-btn-wrapper">
+                        <button class="icon-btn" id="theme-btn" title="切换主题">
+                            <i data-lucide="palette"></i>
+                        </button>
+                        <div class="theme-panel" id="theme-panel">
+                            <div class="theme-option" data-theme="default">
+                                <div class="theme-color" style="background-color: #006633;"></div>
+                                SYSU Green
+                            </div>
+                            <div class="theme-option" data-theme="ocean">
+                                <div class="theme-color" style="background-color: #0077cc;"></div>
+                                Ocean Blue
+                            </div>
+                            <div class="theme-option" data-theme="purple">
+                                <div class="theme-color" style="background-color: #722ed1;"></div>
+                                Elegant Purple
+                            </div>
+                            <div class="theme-option" data-theme="sunset">
+                                <div class="theme-color" style="background-color: #fa541c;"></div>
+                                Warm Sunset
+                            </div>
+                        </div>
+                    </div>
+                    <button class="icon-btn" id="menu-btn" style="display: none;">
+                        <i data-lucide="menu"></i>
+                    </button>
+                </div>
+            </header>
+
+            <div class="messages-container" id="messages">
+                <div class="message other">
+                    <div class="message-avatar">A</div>
+                    <div class="message-content-wrapper">
+                        <span class="message-sender">Alice</span>
+                        <div class="message-bubble">
+                            大家好！欢迎来到全新的 SimpleChat。
+                        </div>
+                        <span class="message-time">10:00</span>
+                    </div>
+                </div>
+
+                <div class="message self">
+                    <div class="message-avatar">M</div>
+                    <div class="message-content-wrapper">
+                        <span class="message-sender">Me</span>
+                        <div class="message-bubble">
+                            哇，这个新界面看起来很不错！是 SYSU 风格吗？
+                        </div>
+                        <span class="message-time">10:01</span>
+                    </div>
+                </div>
+
+                <div class="message other">
+                    <div class="message-avatar" style="background-color: var(--secondary); color: var(--secondary-foreground)">B</div>
+                    <div class="message-content-wrapper">
+                        <span class="message-sender">Bob</span>
+                        <div class="message-bubble">
+                            是的，采用了 OKLCH 色彩空间，更加现代和护眼。
+                        </div>
+                        <span class="message-time">10:02</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sticker Panel -->
+            <div class="sticker-panel" id="sticker-panel">
+                <div class="sticker-tabs">
+                    <div class="sticker-tab active">Emoji</div>
+                    <div class="sticker-tab">Stickers</div>
+                </div>
+                <div class="sticker-content">
+                    <div class="sticker-item">😊</div>
+                    <div class="sticker-item">😂</div>
+                    <div class="sticker-item">🥰</div>
+                    <div class="sticker-item">😎</div>
+                    <div class="sticker-item">🤔</div>
+                    <div class="sticker-item">👍</div>
+                    <div class="sticker-item">🎉</div>
+                    <div class="sticker-item">🔥</div>
+                </div>
+            </div>
+
+            <div class="input-area">
+                <button class="icon-btn" id="sticker-btn" title="表情">
+                    <i data-lucide="smile"></i>
+                </button>
+                <button class="icon-btn" title="上传文件">
+                    <i data-lucide="paperclip"></i>
+                </button>
+                
+                <div class="input-wrapper">
+                    <textarea class="chat-input" placeholder="输入消息..." rows="1"></textarea>
+                </div>
+
+                <button class="send-btn">
+                    <i data-lucide="send"></i>
+                </button>
+            </div>
+        </main>
+
+        <!-- Login Overlay -->
+        <div class="login-overlay" id="login-overlay">
+            <div class="login-card">
+                <div class="login-header">
+                    <h1>SYSU Chat</h1>
+                    <p>博学 审问 慎思 明辨 笃行</p>
+                </div>
+                <form id="login-form">
+                    <div class="form-group">
+                        <label class="form-label">用户名</label>
+                        <input type="text" class="form-input" placeholder="您的昵称" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">注册密钥</label>
+                        <input type="password" class="form-input" placeholder="请输入内部通行密钥" required>
+                    </div>
+                    <button type="submit" class="btn-primary">进入聊天室</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize Icons
+        lucide.createIcons();
+
+        // Simple Interaction Logic for Demo
+        const loginForm = document.getElementById('login-form');
+        const loginOverlay = document.getElementById('login-overlay');
+        const stickerBtn = document.getElementById('sticker-btn');
+        const stickerPanel = document.getElementById('sticker-panel');
+        const themeBtn = document.getElementById('theme-btn');
+        const themePanel = document.getElementById('theme-panel');
+        const themeOptions = document.querySelectorAll('.theme-option');
+        const messagesContainer = document.getElementById('messages');
+        const chatInput = document.querySelector('.chat-input');
+        const sendBtn = document.querySelector('.send-btn');
+
+        // Theme Switcher
+        themeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            themePanel.classList.toggle('active');
+        });
+
+        themeOptions.forEach(option => {
+            option.addEventListener('click', () => {
+                const theme = option.dataset.theme;
+                if (theme === 'default') {
+                    document.documentElement.removeAttribute('data-theme');
+                } else {
+                    document.documentElement.setAttribute('data-theme', theme);
+                }
+                themePanel.classList.remove('active');
+            });
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!themePanel.contains(e.target) && !themeBtn.contains(e.target)) {
+                themePanel.classList.remove('active');
+            }
+        });
+
+        // Login Demo
+        loginForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            // In real app, validate key 24336064 here
+            loginOverlay.style.opacity = '0';
+            setTimeout(() => {
+                loginOverlay.style.display = 'none';
+            }, 300);
+        });
+
+        // Sticker Toggle
+        stickerBtn.addEventListener('click', () => {
+            stickerPanel.classList.toggle('active');
+        });
+
+        // Close sticker panel when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!stickerPanel.contains(e.target) && !stickerBtn.contains(e.target)) {
+                stickerPanel.classList.remove('active');
+            }
+        });
+
+        // Auto-resize textarea
+        chatInput.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = (this.scrollHeight) + 'px';
+        });
+
+        // Send Message Demo
+        function sendMessage() {
+            const text = chatInput.value.trim();
+            if (text) {
+                const msgDiv = document.createElement('div');
+                msgDiv.className = 'message self';
+                msgDiv.innerHTML = `
+                    <div class="message-avatar">M</div>
+                    <div class="message-content-wrapper">
+                        <span class="message-sender">Me</span>
+                        <div class="message-bubble">\${text}</div>
+                        <span class="message-time">\${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                    </div>
+                `;
+                messagesContainer.appendChild(msgDiv);
+                chatInput.value = '';
+                chatInput.style.height = 'auto';
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            }
+        }
+
+        sendBtn.addEventListener('click', sendMessage);
+        chatInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        // Mobile Menu
+        const menuBtn = document.getElementById('menu-btn');
+        const sidebar = document.getElementById('sidebar');
+        
+        if (window.innerWidth <= 768) {
+            menuBtn.style.display = 'flex';
+        }
+
+        menuBtn.addEventListener('click', () => {
+            sidebar.classList.toggle('open');
+        });
+
+    </script>
+</body>
+</html>

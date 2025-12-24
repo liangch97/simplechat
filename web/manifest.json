@@ -1,0 +1,20 @@
+{
+  "name": "SYSU Chat - 中山大学在线聊天室",
+  "short_name": "SYSU Chat",
+  "description": "中山大学学生在线聊天交流平台",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#006633",
+  "theme_color": "#006633",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["social", "communication"],
+  "lang": "zh-CN"
+}

@@ -23,7 +23,7 @@ import java.util.concurrent.Executors;
  * 跨域已放开，适合本机调试；生产请收紧。
  */
 public class HttpChatServer {
-    private static final int PORT = 7070;
+    private static final int PORT = 8080;
     private static final Set<SseClient> CLIENTS = Collections.synchronizedSet(new HashSet<>());
     private static final DateTimeFormatter TS = DateTimeFormatter.ofPattern("HH:mm:ss");
 
