@@ -19,7 +19,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <!-- Lucide Icons (本地) -->
     <script src="js/lucide.min.js"></script>
-    <link rel="stylesheet" href="css/style.css?v=9">
+    <link rel="stylesheet" href="css/style.css?v=11">
 </head>
 <body>
     <div class="app-container">
@@ -54,7 +54,6 @@
         <main class="chat-area">
             <header class="chat-header">
                 <div class="chat-header-info">
-                    <h2>💬 公共聊天室</h2>
                     <div class="chat-status">
                         <span class="status-dot" id="statusDot"></span>
                         <span class="status-text" id="statusText">连接中...</span>
@@ -92,8 +91,8 @@
 
             <div class="messages-container" id="messagesContainer">
                 <div class="welcome-message">
-                    <p>👋 欢迎来到 SYSU Chat 公共聊天室！</p>
-                    <p>开始和大家聊天吧~</p>
+                    <p>👋 欢迎使用 <span id="welcomeRoomName">SYSU Chat</span>！</p>
+                    <p>请登录后开始聊天~</p>
                 </div>
             </div>
 
@@ -173,8 +172,8 @@
             </div>
         </main>
 
-        <!-- 登录覆盖层 -->
-        <div class="login-overlay" id="loginPanel">
+        <!-- 登录覆盖层（默认隐藏，JS检测无token时显示） -->
+        <div class="login-overlay hidden" id="loginPanel">
             <div class="login-card">
                 <div class="login-header">
                     <img src="images/logo.svg" alt="SYSU Chat" class="login-logo">
@@ -211,6 +210,19 @@
                             autocomplete="current-password"
                         >
                     </div>
+                        <div class="form-group">
+                            <label class="form-label" for="loginRoomKey">群聊秘钥</label>
+                            <input 
+                                type="password" 
+                                id="loginRoomKey"
+                                class="form-input" 
+                                name="roomKey" 
+                                placeholder="请输入群聊秘钥"
+                                required
+                                autocomplete="off"
+                            >
+                            <small class="form-hint">请输入您注册时使用的秘钥</small>
+                        </div>
                     <button type="submit" class="btn-primary">
                         登录
                     </button>
@@ -309,8 +321,8 @@
         </div>
     </div>
 
-    <script src="js/config.js?v=2"></script>
-    <script src="js/chat.js?v=14"></script>
+    <script src="js/config.js?v=4"></script>
+    <script src="js/chat.js?v=24"></script>
     <script>
         // 初始化 Lucide 图标
         lucide.createIcons();

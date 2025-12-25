@@ -1,0 +1,26 @@
+# Compiled class files
+*.class
+out/
+
+# Environment files
+.env
+.env.local
+
+# IDE settings
+.vscode/
+.idea/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Database files
+db/*.db
+
+# Logs
+*.log
+
+# Upload files (optional, uncomment if needed)
+# web/uploads/*
+# !web/uploads/.gitkeep

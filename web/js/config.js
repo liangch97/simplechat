@@ -23,7 +23,9 @@ const CONFIG = {
             registerEndpoint: '/api/register',
             loginEndpoint: '/api/login',
             verifyEndpoint: '/api/verify',
-            uploadEndpoint: '/api/upload'
+            uploadEndpoint: '/api/upload',
+            pingEndpoint: '/api/ping',
+            disconnectEndpoint: '/api/disconnect'
         },
         // 生产环境 - 通过 Cloudflare Tunnel 访问
         production: {
@@ -34,7 +36,9 @@ const CONFIG = {
             registerEndpoint: '/api/register',
             loginEndpoint: '/api/login',
             verifyEndpoint: '/api/verify',
-            uploadEndpoint: '/api/upload'
+            uploadEndpoint: '/api/upload',
+            pingEndpoint: '/api/ping',
+            disconnectEndpoint: '/api/disconnect'
         }
     },
 

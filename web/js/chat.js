@@ -7,6 +7,8 @@ class ChatApp {
     constructor() {
         this.nickname = '';
         this.token = '';
+        this.roomKey = this.normalizeRoomKey(localStorage.getItem('sysu_chat_room_key') || '');
+        this.isAdmin = false; // 是否是管理员
         this.eventSource = null;
         this.reconnectAttempts = 0;
         this.isConnected = false;
@@ -16,14 +18,26 @@ class ChatApp {
         this.historyOffset = 0; // 历史消息加载偏移量
         this.isLoadingHistory = false; // 是否正在加载历史消息
         this.hasMoreHistory = true; // 是否还有更多历史消息
+        this.pingInterval = null; // ping 定时器
+        this.lastPongTime = 0; // 最后一次收到 pong 的时间
+        this.messageCache = []; // 消息缓存
+        this.lastMessageTime = 0; // 最后一条消息的时间戳
+        this.isPageHidden = false; // 页面是否在后台
+        this.swRegistration = null; // Service Worker 注册
         
         this.init();
     }
 
     init() {
         this.cacheElements();
+        if (this.loginRoomKey) {
+            this.loginRoomKey.value = this.roomKey;
+        }
+        this.updateRoomDisplay();
         this.bindEvents();
         this.restoreSession();
+        this.registerServiceWorker();
+        this.requestNotificationPermission();
     }
 
     cacheElements() {
@@ -40,6 +54,7 @@ class ChatApp {
         // 登录表单字段
         this.loginUsername = document.getElementById('loginUsername');
         this.loginPassword = document.getElementById('loginPassword');
+        this.loginRoomKey = document.getElementById('loginRoomKey');
         
         // 注册表单字段
         this.regUsername = document.getElementById('regUsername');
@@ -63,6 +78,8 @@ class ChatApp {
         this.statusDot = document.getElementById('statusDot');
         this.statusText = document.getElementById('statusText');
         this.onlineCount = document.getElementById('onlineCount');
+        this.roomNameLabel = document.getElementById('roomNameLabel');
+        this.welcomeRoomName = document.getElementById('welcomeRoomName');
         
         // 弹窗
         this.aboutModal = document.getElementById('aboutModal');
@@ -206,9 +223,32 @@ class ChatApp {
             }
         });
 
-        // 页面关闭前断开连接
+        // 页面关闭/刷新前立即断开连接
         window.addEventListener('beforeunload', () => {
-            this.disconnect();
+            this.notifyDisconnect();
+        });
+        
+        // 页面卸载时断开连接
+        window.addEventListener('unload', () => {
+            this.notifyDisconnect();
+        });
+        
+        // 页面可见性变化处理
+        document.addEventListener('visibilitychange', () => {
+            this.isPageHidden = document.hidden;
+            if (document.hidden) {
+                // 页面被隐藏（切换标签页等），暂时不断开，但减少 ping 频率
+                console.log('[Visibility] Page hidden');
+            } else {
+                // 页面恢复可见
+                console.log('[Visibility] Page visible');
+                // 清除未读消息标记
+                this.clearUnreadBadge();
+                // 如果已连接，立即发送一次 ping 以刷新状态
+                if (this.isConnected && this.nickname) {
+                    this.sendImmediatePing();
+                }
+            }
         });
         
         // 滚动到顶部时加载更多历史消息
@@ -416,31 +456,68 @@ class ChatApp {
     }
 
     restoreSession() {
+        const savedRoomKey = localStorage.getItem('sysu_chat_room_key');
+        if (savedRoomKey) {
+            this.roomKey = this.normalizeRoomKey(savedRoomKey);
+            if (this.loginRoomKey) {
+                this.loginRoomKey.value = this.roomKey;
+            }
+            this.updateRoomDisplay();
+        }
         const savedToken = localStorage.getItem('sysu_chat_token');
         if (savedToken) {
+            // 有 token，验证后进入聊天（登录界面保持隐藏）
             this.verifyToken(savedToken);
+        } else {
+            // 没有 token，显示登录界面
+            if (this.loginPanel) {
+                this.loginPanel.classList.remove('hidden');
+            }
         }
     }
     
     async verifyToken(token) {
         try {
             const url = CONFIG.getApiUrl('verifyEndpoint');
+            
+            // 添加超时控制，5秒超时
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000);
+            
             const resp = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ token })
+                body: JSON.stringify({ token }),
+                signal: controller.signal
             });
+            
+            clearTimeout(timeoutId);
+            
             const data = await resp.json();
-            if (data.valid && data.nickname) {
+            if (data.valid && data.nickname && data.roomKey) {
                 this.token = token;
                 this.nickname = data.nickname;
+                this.isAdmin = data.isAdmin || false;
+                // 使用服务器返回的用户绑定的房间秘钥
+                this.roomKey = data.roomKey;
+                localStorage.setItem('sysu_chat_room_key', this.roomKey);
                 this.enterChatRoom();
             } else {
                 localStorage.removeItem('sysu_chat_token');
+                localStorage.removeItem('sysu_chat_room_key');
+                // 验证失败，显示登录界面
+                if (this.loginPanel) {
+                    this.loginPanel.classList.remove('hidden');
+                }
             }
         } catch (e) {
             console.warn('[Auth] Token verify failed:', e);
             localStorage.removeItem('sysu_chat_token');
+            localStorage.removeItem('sysu_chat_room_key');
+            // 验证失败，显示登录界面
+            if (this.loginPanel) {
+                this.loginPanel.classList.remove('hidden');
+            }
         }
     }
     
@@ -509,6 +586,20 @@ class ChatApp {
     async login() {
         const username = this.loginUsername.value.trim();
         const password = this.loginPassword.value;
+        const roomKeyInput = this.loginRoomKey ? this.loginRoomKey.value.trim() : '';
+        
+        // 登录时输入的秘钥用于验证，但最终使用服务器返回的用户绑定秘钥
+        const inputRoomKey = this.normalizeRoomKey(roomKeyInput);
+        
+        // 验证房间秘钥不能为空
+        if (!inputRoomKey) {
+            this.showToast('请输入群聊秘钥', 'warning');
+            return;
+        }
+        
+        if (this.loginRoomKey) {
+            this.loginRoomKey.value = '';
+        }
         
         if (!username || !password) {
             this.showToast('请输入用户名和密码', 'warning');
@@ -527,7 +618,19 @@ class ChatApp {
             if (data.success && data.token) {
                 this.token = data.token;
                 this.nickname = data.nickname;
+                this.isAdmin = data.isAdmin || false;
+                // 使用服务器返回的用户绑定的房间秘钥
+                const serverRoomKey = data.roomKey || '';
+                
+                // 验证输入的秘钥是否与用户绑定的秘钥一致
+                if (inputRoomKey !== serverRoomKey) {
+                    this.showToast('群聊秘钥与账号不匹配', 'error');
+                    return;
+                }
+                
+                this.roomKey = serverRoomKey;
                 localStorage.setItem('sysu_chat_token', data.token);
+                localStorage.setItem('sysu_chat_room_key', this.roomKey);
                 this.showToast('登录成功', 'success');
                 this.enterChatRoom();
             } else {
@@ -544,8 +647,10 @@ class ChatApp {
         localStorage.removeItem('sysu_chat_token');
         this.token = '';
         this.nickname = '';
+        this.isAdmin = false;
         this.onlineUsers = []; // 清空在线用户列表
         this.renderUserList();
+        this.hideAdminPanel();
         this.exitChatRoom();
     }
 
@@ -563,6 +668,10 @@ class ChatApp {
             this.userName.textContent = this.nickname;
         }
         
+        // 如果是管理员，显示管理按钮
+        this.updateAdminButton();
+        
+        this.updateRoomDisplay();
         // 清空之前的消息
         this.clearMessages();
         
@@ -578,6 +687,38 @@ class ChatApp {
         // 聚焦输入框
         if (this.messageInput) {
             this.messageInput.focus();
+        }
+    }
+    
+    /**
+     * 更新管理员按钮显示
+     */
+    updateAdminButton() {
+        let adminBtn = document.getElementById('adminBtn');
+        
+        if (this.isAdmin) {
+            // 如果不存在管理员按钮，创建一个
+            if (!adminBtn) {
+                const headerActions = document.querySelector('.chat-header-actions');
+                if (headerActions) {
+                    adminBtn = document.createElement('button');
+                    adminBtn.id = 'adminBtn';
+                    adminBtn.className = 'icon-btn admin-btn';
+                    adminBtn.title = '用户管理';
+                    adminBtn.innerHTML = '<i data-lucide="settings"></i><span class="icon-fallback">⚙️</span>';
+                    adminBtn.onclick = () => this.showAdminPanel();
+                    headerActions.insertBefore(adminBtn, headerActions.firstChild);
+                    
+                    // 重新初始化 Lucide 图标
+                    if (typeof lucide !== 'undefined') {
+                        lucide.createIcons();
+                    }
+                }
+            }
+            if (adminBtn) adminBtn.style.display = '';
+        } else {
+            // 隐藏管理员按钮
+            if (adminBtn) adminBtn.style.display = 'none';
         }
     }
 
@@ -606,14 +747,35 @@ class ChatApp {
         }
     }
 
+    updateRoomDisplay() {
+        const roomName = this.roomKey || '';
+        const maskedName = this.maskRoomKey(roomName);
+        if (this.roomNameLabel) {
+            this.roomNameLabel.textContent = maskedName;
+        }
+        const welcomeSpan = this.welcomeRoomName || document.getElementById('welcomeRoomName');
+        if (welcomeSpan) {
+            welcomeSpan.textContent = maskedName;
+            this.welcomeRoomName = welcomeSpan;
+        }
+        const welcome = this.messagesContainer ? this.messagesContainer.querySelector('.welcome-message') : null;
+        if (welcome) {
+            welcome.innerHTML = `
+                <p>👋 欢迎来到 <span id="welcomeRoomName">${this.escapeHtml(maskedName)}</span> 群聊！</p>
+                <p>开始和大家聊天吧~</p>
+            `;
+            this.welcomeRoomName = document.getElementById('welcomeRoomName');
+        }
+    }
+
     async loadHistory(loadMore = false) {
         if (this.isLoadingHistory) return;
         if (loadMore && !this.hasMoreHistory) return;
         
         this.isLoadingHistory = true;
         const limit = CONFIG.chat.messageHistoryLimit || 50;
-        const offset = loadMore ? this.historyOffset : 0;
-        const url = CONFIG.getApiUrl('historyEndpoint') + `?limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`;
+        const roomKey = this.roomKey || '';
+        const cacheKey = `sysu_chat_cache_${roomKey}`;
         
         try {
             // 如果是加载更多，显示加载提示
@@ -624,6 +786,54 @@ class ChatApp {
                 loadingEl.innerHTML = '<span>加载中...</span>';
                 this.messagesContainer.insertBefore(loadingEl, this.messagesContainer.firstChild);
             }
+            
+            // 初始加载时，先尝试从缓存加载
+            if (!loadMore) {
+                const cached = this.loadFromCache(cacheKey);
+                if (cached && cached.messages && cached.messages.length > 0) {
+                    console.log('[Cache] Loading', cached.messages.length, 'cached messages');
+                    // 先显示缓存的消息
+                    for (const line of cached.messages) {
+                        this.handleMessage(line, true, false, true);
+                    }
+                    this.scrollToBottom();
+                    
+                    // 然后请求新消息（增量加载）
+                    const since = cached.timestamp || 0;
+                    if (since > 0) {
+                        const newUrl = CONFIG.getApiUrl('historyEndpoint') + `?since=${encodeURIComponent(since)}&roomKey=${encodeURIComponent(roomKey)}`;
+                        const resp = await fetch(newUrl, { headers: { 'Accept': 'application/json' } });
+                        if (resp.ok) {
+                            const data = await resp.json();
+                            const newMessages = data.messages || [];
+                            if (newMessages.length > 0) {
+                                console.log('[Cache] Loading', newMessages.length, 'new messages');
+                                for (const line of newMessages) {
+                                    this.handleMessage(line, true, false, true);
+                                }
+                                this.scrollToBottom();
+                                // 更新缓存
+                                cached.messages.push(...newMessages);
+                                // 只保留最近的消息（限制缓存大小）
+                                if (cached.messages.length > 200) {
+                                    cached.messages = cached.messages.slice(-200);
+                                }
+                                cached.timestamp = data.timestamp || Date.now();
+                                this.saveToCache(cacheKey, cached);
+                            }
+                        }
+                    }
+                    
+                    this.historyOffset = cached.messages.length;
+                    this.hasMoreHistory = true; // 可能还有更早的历史
+                    this.isLoadingHistory = false;
+                    return;
+                }
+            }
+            
+            // 无缓存或加载更多时，正常请求
+            const offset = loadMore ? this.historyOffset : 0;
+            const url = CONFIG.getApiUrl('historyEndpoint') + `?limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}&roomKey=${encodeURIComponent(roomKey)}`;
             
             const resp = await fetch(url, {
                 method: 'GET',
@@ -676,10 +886,19 @@ class ChatApp {
                         this.showLoadMoreHint('已加载全部历史消息');
                     }
                 } else {
-                    // 初始加载
+                    // 初始加载 - 跳过滚动，加载完成后统一滚动
                     for (const line of messages) {
-                        this.handleMessage(line, true);
+                        this.handleMessage(line, true, false, true); // skipScroll = true
                     }
+                    
+                    // 加载完成后直接滚动到底部（无动画）
+                    this.scrollToBottom();
+                    
+                    // 保存到缓存
+                    this.saveToCache(cacheKey, {
+                        messages: messages,
+                        timestamp: Date.now()
+                    });
                     
                     // 初次加载后，如果有更多历史，显示提示
                     if (hasMore && total) {
@@ -696,13 +915,137 @@ class ChatApp {
             const loadingEl = this.messagesContainer.querySelector('.loading-more');
             if (loadingEl) loadingEl.remove();
             
-            // 如果是初次加载失败，显示提示
+            // 如果是初次加载失败，尝试从缓存加载
             if (!loadMore) {
-                this.addSystemMessage('历史消息加载失败，请刷新页面重试');
+                const cacheKey = `sysu_chat_cache_${roomKey}`;
+                const cached = this.loadFromCache(cacheKey);
+                if (cached && cached.messages && cached.messages.length > 0) {
+                    console.log('[Cache] Offline mode, loading', cached.messages.length, 'cached messages');
+                    for (const line of cached.messages) {
+                        this.handleMessage(line, true, false, true);
+                    }
+                    this.scrollToBottom();
+                    this.addSystemMessage('网络异常，显示缓存消息');
+                } else {
+                    this.addSystemMessage('历史消息加载失败，请刷新页面重试');
+                }
             }
         } finally {
             this.isLoadingHistory = false;
         }
+    }
+    
+    // 从缓存加载消息
+    loadFromCache(cacheKey) {
+        try {
+            const cached = localStorage.getItem(cacheKey);
+            if (cached) {
+                return JSON.parse(cached);
+            }
+        } catch (e) {
+            console.warn('[Cache] Load failed:', e);
+        }
+        return null;
+    }
+    
+    // 保存消息到缓存
+    saveToCache(cacheKey, data) {
+        try {
+            localStorage.setItem(cacheKey, JSON.stringify(data));
+        } catch (e) {
+            console.warn('[Cache] Save failed:', e);
+            // 缓存满了，清理旧数据
+            try {
+                localStorage.removeItem(cacheKey);
+                localStorage.setItem(cacheKey, JSON.stringify(data));
+            } catch (e2) {
+                console.warn('[Cache] Save retry failed:', e2);
+            }
+        }
+    }
+    
+    // 添加新消息到缓存
+    addToCache(message) {
+        const cacheKey = `sysu_chat_cache_${this.roomKey}`;
+        try {
+            const cached = this.loadFromCache(cacheKey) || { messages: [], timestamp: 0 };
+            cached.messages.push(message);
+            // 限制缓存大小
+            if (cached.messages.length > 200) {
+                cached.messages = cached.messages.slice(-200);
+            }
+            cached.timestamp = Date.now();
+            this.saveToCache(cacheKey, cached);
+        } catch (e) {
+            console.warn('[Cache] Add message failed:', e);
+        }
+    }
+    
+    // ===== Service Worker 和通知功能 =====
+    
+    // 注册 Service Worker
+    async registerServiceWorker() {
+        if ('serviceWorker' in navigator) {
+            try {
+                this.swRegistration = await navigator.serviceWorker.register('/sw.js');
+                console.log('[SW] Registered successfully');
+                
+                // 检查更新
+                this.swRegistration.addEventListener('updatefound', () => {
+                    console.log('[SW] Update found');
+                    const newWorker = this.swRegistration.installing;
+                    newWorker.addEventListener('statechange', () => {
+                        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                            // 新版本已安装，提示用户刷新
+                            this.showToast('发现新版本，请刷新页面', 'info');
+                        }
+                    });
+                });
+            } catch (e) {
+                console.warn('[SW] Registration failed:', e);
+            }
+        }
+    }
+    
+    // 请求通知权限
+    async requestNotificationPermission() {
+        if (!('Notification' in window)) {
+            console.log('[Notification] Not supported');
+            return;
+        }
+        
+        if (Notification.permission === 'default') {
+            // 延迟请求，等用户交互后再请求
+            console.log('[Notification] Will request permission on first message');
+        } else {
+            console.log('[Notification] Permission:', Notification.permission);
+        }
+    }
+    
+    // 发送后台通知（页面在后台时）
+    sendBackgroundNotification(sender, text) {
+        if (!this.isPageHidden) return; // 页面在前台不发通知
+        if (sender === this.nickname) return; // 自己的消息不发通知
+        if (sender === 'SERVER') return; // 系统消息不发通知
+        
+        if ('Notification' in window && Notification.permission === 'granted') {
+            this.sendBrowserNotification(sender, text, true);
+            this.updateUnreadBadge();
+        }
+    }
+    
+    // 更新未读消息角标
+    updateUnreadBadge() {
+        // 更新页面标题显示未读数
+        if (!this.unreadCount) this.unreadCount = 0;
+        this.unreadCount++;
+        document.title = `(${this.unreadCount}) SYSU Chat`;
+    }
+    
+    // 清除未读消息角标
+    clearUnreadBadge() {
+        this.unreadCount = 0;
+        document.title = 'SYSU Chat - 中山大学在线聊天室';
     }
     
     // 显示加载更多提示
@@ -728,11 +1071,22 @@ class ChatApp {
         }
 
         this.updateStatus('connecting');
+        
+        // 连接时清空之前的用户列表，等待服务器推送最新数据
+        this.onlineUsers = [];
+        this.realOnlineCount = 0;
 
         // 在 SSE URL 中传递用户昵称，以便服务器跟踪在线用户
         let eventsUrl = CONFIG.getApiUrl('eventsEndpoint');
+        const params = [];
         if (this.nickname) {
-            eventsUrl += `?nickname=${encodeURIComponent(this.nickname)}`;
+            params.push(`nickname=${encodeURIComponent(this.nickname)}`);
+        }
+        if (this.roomKey) {
+            params.push(`roomKey=${encodeURIComponent(this.roomKey)}`);
+        }
+        if (params.length > 0) {
+            eventsUrl += `?${params.join('&')}`;
         }
         
         try {
@@ -748,6 +1102,8 @@ class ChatApp {
 
             this.eventSource.onmessage = (event) => {
                 this.handleMessage(event.data);
+                // 实时消息添加到缓存
+                this.addToCache(event.data);
             };
 
             this.eventSource.addEventListener('info', (event) => {
@@ -763,6 +1119,21 @@ class ChatApp {
                     }
                 } catch (e) {
                     console.warn('[SSE] Failed to parse info event:', e);
+                }
+            });
+            
+            // 监听无效房间秘钥错误
+            this.eventSource.addEventListener('error', (event) => {
+                console.log('[SSE] Error event:', event.data);
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'invalid_room_key') {
+                        this.showToast('无效的房间秘钥，请检查后重试', 'error');
+                        this.disconnect();
+                        this.logout();
+                    }
+                } catch (e) {
+                    console.warn('[SSE] Failed to parse error event:', e);
                 }
             });
             
@@ -792,6 +1163,9 @@ class ChatApp {
                     this.scheduleReconnect();
                 }
             };
+            
+            // 启动 ping 定时器（每 8 秒发送一次 ping）
+            this.startPing();
 
         } catch (error) {
             console.error('[SSE] Failed to connect:', error);
@@ -801,11 +1175,133 @@ class ChatApp {
     }
 
     disconnect() {
+        // 停止 ping 定时器
+        this.stopPing();
+        
+        // 通知服务器断开连接
+        this.notifyDisconnect();
+        
         if (this.eventSource) {
             this.eventSource.close();
             this.eventSource = null;
         }
         this.isConnected = false;
+    }
+    
+    /**
+     * 启动 ping 定时器
+     */
+    startPing() {
+        this.stopPing(); // 先停止之前的定时器
+        this.lastPongTime = Date.now();
+        
+        this.pingInterval = setInterval(() => {
+            if (!this.isConnected || !this.nickname) {
+                return;
+            }
+            
+            // 发送 ping 请求
+            const pingUrl = CONFIG.getApiUrl('pingEndpoint') + 
+                `?roomKey=${encodeURIComponent(this.roomKey)}&nickname=${encodeURIComponent(this.nickname)}`;
+            
+            fetch(pingUrl, { method: 'GET' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.pong) {
+                        this.lastPongTime = Date.now();
+                        // 更新在线人数和用户列表
+                        if (data.online !== undefined) {
+                            this.updateOnlineCount(data.online);
+                        }
+                        if (data.users !== undefined && Array.isArray(data.users)) {
+                            this.setOnlineUsers(data.users);
+                        }
+                    }
+                })
+                .catch(err => {
+                    console.warn('[Ping] Failed:', err);
+                    // 检查是否长时间没有收到 pong
+                    if (Date.now() - this.lastPongTime > 30000) {
+                        console.warn('[Ping] Connection may be lost, reconnecting...');
+                        this.isConnected = false;
+                        this.updateStatus('disconnected');
+                        this.scheduleReconnect();
+                    }
+                });
+        }, 8000); // 每 8 秒 ping 一次
+        
+        console.log('[Ping] Started ping timer');
+    }
+    
+    /**
+     * 停止 ping 定时器
+     */
+    stopPing() {
+        if (this.pingInterval) {
+            clearInterval(this.pingInterval);
+            this.pingInterval = null;
+            console.log('[Ping] Stopped ping timer');
+        }
+    }
+    
+    /**
+     * 立即发送一次 ping（用于页面恢复可见时刷新状态）
+     */
+    sendImmediatePing() {
+        if (!this.isConnected || !this.nickname) {
+            return;
+        }
+        
+        const pingUrl = CONFIG.getApiUrl('pingEndpoint') + 
+            `?roomKey=${encodeURIComponent(this.roomKey)}&nickname=${encodeURIComponent(this.nickname)}`;
+        
+        fetch(pingUrl, { method: 'GET' })
+            .then(response => response.json())
+            .then(data => {
+                if (data.pong) {
+                    this.lastPongTime = Date.now();
+                    if (data.online !== undefined) {
+                        this.updateOnlineCount(data.online);
+                    }
+                    if (data.users !== undefined && Array.isArray(data.users)) {
+                        this.setOnlineUsers(data.users);
+                    }
+                    console.log('[Ping] Immediate ping successful');
+                }
+            })
+            .catch(err => {
+                console.warn('[Ping] Immediate ping failed:', err);
+            });
+    }
+    
+    /**
+     * 通知服务器客户端断开连接
+     */
+    notifyDisconnect() {
+        if (!this.nickname || !this.roomKey) {
+            return;
+        }
+        
+        const disconnectUrl = CONFIG.getApiUrl('disconnectEndpoint');
+        const data = JSON.stringify({
+            roomKey: this.roomKey,
+            nickname: this.nickname
+        });
+        
+        // 使用 sendBeacon 确保在页面卸载时也能发送
+        if (navigator.sendBeacon) {
+            navigator.sendBeacon(disconnectUrl, data);
+        } else {
+            // 备用：同步 XMLHttpRequest
+            try {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', disconnectUrl, false); // 同步请求
+                xhr.setRequestHeader('Content-Type', 'application/json');
+                xhr.send(data);
+            } catch (e) {
+                console.warn('[Disconnect] Failed to notify server:', e);
+            }
+        }
     }
 
     scheduleReconnect() {
@@ -844,13 +1340,13 @@ class ChatApp {
         }
     }
 
-    handleMessage(data, isHistory = false, insertAtTop = false) {
+    handleMessage(data, isHistory = false, insertAtTop = false, skipScroll = false) {
         // 解析消息格式: [HH:mm:ss] 昵称: 内容
         const match = data.match(/^\[(\d{2}:\d{2}:\d{2})\]\s+(.+?):\s+(.+)$/);
         
         if (match) {
             const [, time, sender, text] = match;
-            this.addChatMessage(sender, text, time, isHistory, insertAtTop);
+            this.addChatMessage(sender, text, time, isHistory, insertAtTop, skipScroll);
         } else {
             // 如果格式不匹配，显示为系统消息
             this.addSystemMessage(data);
@@ -890,11 +1386,21 @@ class ChatApp {
                 },
                 body: JSON.stringify({
                     name: this.nickname,
-                    message: messageToSend
+                    message: messageToSend,
+                    roomKey: this.roomKey
                 })
             });
 
             if (!response.ok) {
+                // 检查是否是无效秘钥错误
+                try {
+                    const errData = await response.json();
+                    if (errData.message === '无效的房间秘钥') {
+                        this.showToast('无效的房间秘钥，请检查后重试', 'error');
+                        this.messageInput.value = messageToSend;
+                        return;
+                    }
+                } catch (e) {}
                 // 发送失败，恢复输入框内容
                 this.messageInput.value = messageToSend;
                 this.showToast('发送失败，请重试', 'error');
@@ -909,7 +1415,7 @@ class ChatApp {
         }
     }
 
-    addChatMessage(sender, text, time, isHistory = false, insertAtTop = false) {
+    addChatMessage(sender, text, time, isHistory = false, insertAtTop = false, skipScroll = false) {
         const isSelf = sender === this.nickname;
         const isServer = sender === 'SERVER';
         
@@ -918,11 +1424,21 @@ class ChatApp {
             return;
         }
         
-        // 更新在线用户列表
-        this.updateOnlineUsers(sender);
+        // 只有实时消息才更新在线用户列表（历史消息不应该添加）
+        if (!isHistory) {
+            this.updateOnlineUsers(sender);
+            // 页面在后台时发送通知
+            this.sendBackgroundNotification(sender, text);
+        }
 
         const messageEl = document.createElement('div');
         messageEl.className = `message ${isSelf ? 'self' : ''}`;
+        
+        // 检查是否是图片或表情包消息
+        const isImageMessage = /\[IMAGE:.+?\]/.test(text) || /\[STICKER:.+?\]/.test(text);
+        if (isImageMessage) {
+            messageEl.classList.add('image-message');
+        }
         
         // 检查是否被@
         const isMentioned = text.includes('@' + this.nickname);
@@ -949,7 +1465,7 @@ class ChatApp {
             </div>
         `;
 
-        this.appendMessage(messageEl, insertAtTop);
+        this.appendMessage(messageEl, insertAtTop, skipScroll);
     }
     
     processMessageContent(text) {
@@ -999,7 +1515,7 @@ class ChatApp {
         this.appendMessage(messageEl);
     }
 
-    appendMessage(messageEl, insertAtTop = false) {
+    appendMessage(messageEl, insertAtTop = false, skipScroll = false) {
         // 移除欢迎消息
         const welcomeMsg = this.messagesContainer.querySelector('.welcome-message');
         if (welcomeMsg) {
@@ -1016,8 +1532,10 @@ class ChatApp {
             }
         } else {
             this.messagesContainer.appendChild(messageEl);
-            // 滚动到底部（只有追加到底部时才滚动）
-            this.scrollToBottom();
+            // 滚动到底部（只有追加到底部且不跳过滚动时才滚动，实时消息使用平滑滚动）
+            if (!skipScroll) {
+                this.scrollToBottom(true); // 实时消息使用平滑滚动
+            }
         }
     }
 
@@ -1026,17 +1544,47 @@ class ChatApp {
         this.historyOffset = 0;
         this.hasMoreHistory = true;
         this.isLoadingHistory = false;
-        
+
+        const maskedRoom = this.escapeHtml(this.maskRoomKey(this.roomKey || ''));
         this.messagesContainer.innerHTML = `
             <div class="welcome-message">
-                <p>👋 欢迎来到 SYSU Chat 公共聊天室！</p>
+                <p>👋 欢迎来到 <span id=\"welcomeRoomName\">${maskedRoom}</span> 群聊！</p>
                 <p>开始和大家聊天吧~</p>
             </div>
         `;
+
+        this.updateRoomDisplay();
     }
 
-    scrollToBottom() {
-        this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+    scrollToBottom(smooth = false) {
+        if (smooth) {
+            this.messagesContainer.scrollTo({
+                top: this.messagesContainer.scrollHeight,
+                behavior: 'smooth'
+            });
+        } else {
+            this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+        }
+    }
+
+    normalizeRoomKey(key) {
+        const trimmed = (key || '').trim();
+        if (!trimmed) return '';
+        const safe = trimmed.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 128);
+        return safe || '';
+    }
+
+    /**
+     * 将房间秘钥转换为掩码显示格式（如 ****6064）
+     */
+    maskRoomKey(key) {
+        if (!key || key.length === 0) return '未设置';
+        if (key.length <= 4) {
+            return '*'.repeat(key.length);
+        }
+        const visiblePart = key.slice(-4);
+        const maskedPart = '*'.repeat(Math.min(key.length - 4, 4));
+        return maskedPart + visiblePart;
     }
 
     escapeHtml(text) {
@@ -1098,13 +1646,15 @@ class ChatApp {
         }
     }
     
-    sendBrowserNotification(sender, text) {
+    sendBrowserNotification(sender, text, isNewMessage = false) {
         try {
-            const notification = new Notification(`${sender} @了你`, {
+            const title = isNewMessage ? `${sender} 发来消息` : `${sender} @了你`;
+            const notification = new Notification(title, {
                 body: text.length > 50 ? text.substring(0, 50) + '...' : text,
                 icon: '/favicon.svg',
-                tag: 'chat-mention',
-                requireInteraction: false
+                tag: isNewMessage ? 'chat-message' : 'chat-mention',
+                requireInteraction: false,
+                silent: isNewMessage // 新消息静音，@提及有声音
             });
             
             notification.onclick = () => {
@@ -1444,7 +1994,8 @@ class ChatApp {
                 },
                 body: JSON.stringify({
                     name: this.nickname,
-                    message: '[STICKER:' + url + ']'
+                    message: '[STICKER:' + url + ']',
+                    roomKey: this.roomKey
                 })
             });
 
@@ -1480,6 +2031,7 @@ class ChatApp {
             formData.append('file', file);
             formData.append('name', this.nickname);
             formData.append('type', type);
+            formData.append('roomKey', this.roomKey);
             
             const uploadUrl = CONFIG.getApiUrl('uploadEndpoint');
             
@@ -1629,25 +2181,19 @@ class ChatApp {
     // 设置在线用户列表（从服务器获取的真实列表）
     setOnlineUsers(users) {
         if (Array.isArray(users)) {
-            this.onlineUsers = users;
+            // 完全替换列表，不要累积
+            this.onlineUsers = [...users];
             this.renderUserList();
-            console.log('[Online] Users updated:', users);
+            console.log('[Online] Users updated from server:', users.length, 'users');
         }
     }
     
-    // 更新在线用户列表（从消息中提取 - 备用方案）
+    // 更新在线用户列表（从消息中提取 - 已禁用，完全依赖服务器推送）
     updateOnlineUsers(sender) {
-        // 如果服务器已经推送了用户列表，则不需要从消息中提取
-        // 只有在 onlineUsers 为空时才使用此方法
-        if (sender && !this.onlineUsers.includes(sender) && sender !== 'SERVER') {
-            this.onlineUsers.push(sender);
-            // 保持列表不超过100人
-            if (this.onlineUsers.length > 100) {
-                this.onlineUsers.shift();
-            }
-            // 更新侧边栏用户列表
-            this.renderUserList();
-        }
+        // 不再从消息中累积用户列表
+        // 在线用户列表完全由服务器通过 SSE 推送
+        // 这样可以避免历史消息污染在线用户列表
+        return;
     }
     
     // 更新在线人数（来自服务器的实时推送）
@@ -1687,6 +2233,208 @@ class ChatApp {
                 }
             });
         });
+    }
+    
+    // ========== 管理员功能 ==========
+    
+    /**
+     * 显示管理员面板
+     */
+    showAdminPanel() {
+        if (!this.isAdmin) {
+            this.showToast('无管理员权限', 'error');
+            return;
+        }
+        
+        // 创建管理员面板
+        let adminPanel = document.getElementById('adminPanel');
+        if (!adminPanel) {
+            adminPanel = document.createElement('div');
+            adminPanel.id = 'adminPanel';
+            adminPanel.className = 'admin-panel';
+            adminPanel.innerHTML = `
+                <div class="admin-overlay" onclick="chatApp.hideAdminPanel()"></div>
+                <div class="admin-content">
+                    <div class="admin-header">
+                        <h2>🔧 用户管理</h2>
+                        <button class="admin-close" onclick="chatApp.hideAdminPanel()">&times;</button>
+                    </div>
+                    <div class="admin-toolbar">
+                        <select id="adminRoomFilter" onchange="chatApp.loadAdminUsers()">
+                            <option value="">所有房间</option>
+                            <option value="24336064">simplechat (****6064)</option>
+                            <option value="061318">homechat (****1318)</option>
+                        </select>
+                        <button class="btn btn-sm" onclick="chatApp.loadAdminUsers()">🔄 刷新</button>
+                    </div>
+                    <div class="admin-users" id="adminUsersList">
+                        <div class="loading">加载中...</div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(adminPanel);
+        }
+        
+        adminPanel.classList.add('show');
+        this.loadAdminUsers();
+    }
+    
+    /**
+     * 隐藏管理员面板
+     */
+    hideAdminPanel() {
+        const adminPanel = document.getElementById('adminPanel');
+        if (adminPanel) {
+            adminPanel.classList.remove('show');
+        }
+    }
+    
+    /**
+     * 加载用户列表
+     */
+    async loadAdminUsers() {
+        if (!this.isAdmin) return;
+        
+        const roomFilter = document.getElementById('adminRoomFilter');
+        const roomKey = roomFilter ? roomFilter.value : '';
+        const usersList = document.getElementById('adminUsersList');
+        
+        if (usersList) {
+            usersList.innerHTML = '<div class="loading">加载中...</div>';
+        }
+        
+        try {
+            const url = CONFIG.getApiUrl('baseUrl') + '/api/admin/users' + (roomKey ? `?roomKey=${encodeURIComponent(roomKey)}` : '');
+            const resp = await fetch(url, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${this.token}`
+                }
+            });
+            const data = await resp.json();
+            
+            if (data.error) {
+                usersList.innerHTML = `<div class="error">${this.escapeHtml(data.error)}</div>`;
+                return;
+            }
+            
+            if (!data.users || data.users.length === 0) {
+                usersList.innerHTML = '<div class="empty">暂无用户</div>';
+                return;
+            }
+            
+            usersList.innerHTML = data.users.map(user => `
+                <div class="admin-user-item ${user.isAdmin ? 'is-admin' : ''}">
+                    <div class="admin-user-info">
+                        <div class="admin-user-avatar">${user.nickname.charAt(0).toUpperCase()}</div>
+                        <div class="admin-user-details">
+                            <div class="admin-user-name">
+                                ${this.escapeHtml(user.nickname)}
+                                ${user.isAdmin ? '<span class="admin-badge">管理员</span>' : ''}
+                            </div>
+                            <div class="admin-user-meta">
+                                <span>@${this.escapeHtml(user.username)}</span>
+                                <span>房间: ${this.maskRoomKey(user.roomKey)}</span>
+                            </div>
+                            <div class="admin-user-time">
+                                创建: ${user.createdAt || '未知'} | 
+                                登录: ${user.lastLogin || '从未'}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="admin-user-actions">
+                        ${!user.isAdmin ? `
+                            <button class="btn btn-sm btn-warning" onclick="chatApp.showResetPasswordDialog(${user.id}, '${this.escapeHtml(user.username)}')">重置密码</button>
+                            <button class="btn btn-sm btn-danger" onclick="chatApp.confirmDeleteUser(${user.id}, '${this.escapeHtml(user.username)}')">删除</button>
+                        ` : '<span class="protected">受保护</span>'}
+                    </div>
+                </div>
+            `).join('');
+            
+        } catch (e) {
+            console.error('[Admin] Load users failed:', e);
+            usersList.innerHTML = '<div class="error">加载失败</div>';
+        }
+    }
+    
+    /**
+     * 确认删除用户
+     */
+    confirmDeleteUser(userId, username) {
+        if (!confirm(`确定要删除用户 "${username}" 吗？\n\n此操作不可恢复！`)) {
+            return;
+        }
+        this.deleteUser(userId);
+    }
+    
+    /**
+     * 删除用户
+     */
+    async deleteUser(userId) {
+        try {
+            const url = CONFIG.getApiUrl('baseUrl') + '/api/admin/user/delete';
+            const resp = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.token}`
+                },
+                body: JSON.stringify({ userId })
+            });
+            const data = await resp.json();
+            
+            if (data.success) {
+                this.showToast('用户已删除', 'success');
+                this.loadAdminUsers();
+            } else {
+                this.showToast(data.error || '删除失败', 'error');
+            }
+        } catch (e) {
+            console.error('[Admin] Delete user failed:', e);
+            this.showToast('删除失败', 'error');
+        }
+    }
+    
+    /**
+     * 显示重置密码对话框
+     */
+    showResetPasswordDialog(userId, username) {
+        const newPassword = prompt(`为用户 "${username}" 设置新密码：\n\n（至少6个字符）`);
+        if (!newPassword) return;
+        
+        if (newPassword.length < 6) {
+            this.showToast('密码长度至少6个字符', 'warning');
+            return;
+        }
+        
+        this.resetUserPassword(userId, newPassword);
+    }
+    
+    /**
+     * 重置用户密码
+     */
+    async resetUserPassword(userId, newPassword) {
+        try {
+            const url = CONFIG.getApiUrl('baseUrl') + '/api/admin/user/reset-password';
+            const resp = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.token}`
+                },
+                body: JSON.stringify({ userId, newPassword })
+            });
+            const data = await resp.json();
+            
+            if (data.success) {
+                this.showToast('密码已重置', 'success');
+            } else {
+                this.showToast(data.error || '重置失败', 'error');
+            }
+        } catch (e) {
+            console.error('[Admin] Reset password failed:', e);
+            this.showToast('重置失败', 'error');
+        }
     }
 }
 

@@ -31,47 +31,52 @@ public class TestDbConnection {
         System.out.println("检测到数据库类型: " + db.Db.type());
         System.out.println();
         
-        // 尝试连接
-        System.out.println("正在连接数据库...");
-        try {
-            // 加载驱动
-            db.Db.ensureDriver();
-            System.out.println("✓ 驱动加载成功");
+        // 测试白名单中的所有房间秘钥
+        String[] testRoomKeys = {"24336064", "061318", "public", "invalid_key"};
+        
+        for (String roomKey : testRoomKeys) {
+            System.out.println("--- 测试房间秘钥: " + roomKey + " ---");
             
-            // 建立连接
-            Connection conn = db.Db.getConnection();
-            System.out.println("✓ 连接成功！");
-            System.out.println("  连接类型: " + conn.getClass().getName());
-            
-            // 测试查询
-            var stmt = conn.createStatement();
-            var rs = stmt.executeQuery("SELECT COUNT(*) as count FROM messages");
-            if (rs.next()) {
-                int count = rs.getInt("count");
-                System.out.println("✓ 数据库查询成功！");
-                System.out.println("  messages 表中共有 " + count + " 条消息");
+            // 检查秘钥是否有效
+            if (!db.Db.isValidRoomKey(roomKey)) {
+                System.out.println("  ✓ 正确拒绝无效秘钥");
+                System.out.println();
+                continue;
             }
             
-            rs.close();
-            stmt.close();
-            conn.close();
+            String dbName = db.Db.getDbNameForRoom(roomKey);
+            System.out.println("  映射到数据库: " + dbName);
             
+            try {
+                // 加载驱动
+                db.Db.ensureDriver();
+                
+                // 建立连接
+                Connection conn = db.Db.getConnection(roomKey);
+                System.out.println("  ✓ 连接成功！");
+                
+                // 测试查询
+                var stmt = conn.createStatement();
+                try {
+                    var rs = stmt.executeQuery("SELECT COUNT(*) as count FROM messages");
+                    if (rs.next()) {
+                        int count = rs.getInt("count");
+                        System.out.println("  ✓ messages 表存在，当前 " + count + " 条消息");
+                    }
+                    rs.close();
+                } catch (Exception e) {
+                    System.out.println("  ⚠ messages 表不存在或查询失败: " + e.getMessage());
+                }
+                
+                stmt.close();
+                conn.close();
+                System.out.println("  ✓ 连接已关闭");
+            } catch (Exception e) {
+                System.out.println("  ❌ 连接失败: " + e.getMessage());
+            }
             System.out.println();
-            System.out.println("========== 连接测试通过 ==========");
-            
-        } catch (ClassNotFoundException e) {
-            System.out.println("❌ 驱动加载失败: " + e.getMessage());
-            System.out.println("请确保 SQL Server JDBC 驱动已添加到 lib/ 目录");
-            e.printStackTrace();
-        } catch (Exception e) {
-            System.out.println("❌ 连接失败: " + e.getMessage());
-            System.out.println();
-            System.out.println("可能的原因：");
-            System.out.println("  1. SQL Server 服务未启动");
-            System.out.println("  2. 连接字符串不正确");
-            System.out.println("  3. 数据库不存在或无权限访问");
-            System.out.println("  4. 防火墙阻止了连接");
-            e.printStackTrace();
         }
+        
+        System.out.println("========== 测试完成 ==========");
     }
 }
