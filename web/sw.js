@@ -61,11 +61,20 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
     const url = new URL(event.request.url);
     
-    // 跳过 API 请求和 SSE 连接
+    // 跳过 API 请求和 SSE 连接（包括跨域请求）
     if (url.pathname.startsWith('/api/') || 
         url.pathname.startsWith('/events') || 
-        url.pathname.startsWith('/send')) {
-        return; // 不缓存 API 请求
+        url.pathname.startsWith('/send') ||
+        url.href.includes('/api/') ||
+        url.href.includes('/events') ||
+        url.href.includes('/send') ||
+        event.request.method !== 'GET') {
+        return; // 不缓存 API 请求和非 GET 请求
+    }
+    
+    // 只缓存同源的静态资源
+    if (url.origin !== self.location.origin) {
+        return; // 跳过跨域请求
     }
     
     // 静态资源：网络优先，失败时使用缓存

@@ -1,0 +1,38 @@
+{
+  "name": "sysu-chat-app",
+  "version": "1.0.0",
+  "description": "SYSU Chat - 中山大学在线聊天室 Android App",
+  "main": "index.js",
+  "scripts": {
+    "build": "echo 'No build step required for static files'",
+    "cap:init": "npx cap init \"SYSU Chat\" com.sysu.chat --web-dir www",
+    "cap:add:android": "npx cap add android",
+    "cap:copy": "npx cap copy android",
+    "cap:sync": "npx cap sync android",
+    "cap:open": "npx cap open android",
+    "cap:build": "npm run cap:copy && cd android && gradlew assembleDebug",
+    "cap:build:release": "npm run cap:copy && cd android && gradlew assembleRelease"
+  },
+  "keywords": [
+    "sysu",
+    "chat",
+    "android",
+    "capacitor"
+  ],
+  "author": "SYSU",
+  "license": "MIT",
+  "dependencies": {
+    "@capacitor/android": "^5.7.0",
+    "@capacitor/app": "^5.0.7",
+    "@capacitor/core": "^5.7.0",
+    "@capacitor/haptics": "^5.0.7",
+    "@capacitor/keyboard": "^5.0.8",
+    "@capacitor/network": "^5.0.7",
+    "@capacitor/splash-screen": "^5.0.7",
+    "@capacitor/status-bar": "^5.0.7"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^5.7.0",
+    "typescript": "^5.9.3"
+  }
+}

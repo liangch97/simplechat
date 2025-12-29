@@ -1,3 +1,5 @@
+package app;
+
 import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
@@ -130,9 +132,10 @@ public class HttpChatServer {
     }
 
     private static void addCors(Headers h) {
-        h.add("Access-Control-Allow-Origin", "*");
-        h.add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-        h.add("Access-Control-Allow-Headers", "Content-Type");
+        // 使用 set 而不是 add，防止重复添加导致 "*, *" 的问题
+        h.set("Access-Control-Allow-Origin", "*");
+        h.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        h.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     }
 
     private static class SseClient {

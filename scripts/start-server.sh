@@ -20,7 +20,8 @@ if ! command -v java &> /dev/null; then
     exit 1
 fi
 
-# 创建输出目录
+# 清理并创建输出目录
+rm -rf out
 mkdir -p out
 
 echo "[1/4] 正在编译服务器..."
@@ -45,4 +46,4 @@ fi
 
 echo "[4/4] 正在启动服务器 (端口: $PORT)..."
 echo ""
-java -cp "out:lib/*" WebChatServer $PORT
+java -cp "out:lib/*" app.WebChatServer $PORT

@@ -29,7 +29,7 @@ const CONFIG = {
         },
         // 生产环境 - 通过 Cloudflare Tunnel 访问
         production: {
-            baseUrl: '',  // 使用相对路径，自动继承当前协议和域名
+            baseUrl: 'https://chat.sysu.asia',  // 完整URL，兼容App
             eventsEndpoint: '/events',
             sendEndpoint: '/send',
             historyEndpoint: '/api/history',
@@ -43,7 +43,7 @@ const CONFIG = {
     },
 
     // 当前环境
-    env: 'development', // 'development' 或 'production'
+    env: 'production', // 'development' 或 'production'
 
     // 聊天配置
     chat: {
@@ -69,9 +69,16 @@ const CONFIG = {
 
 // 根据当前域名自动切换环境
 if (typeof window !== 'undefined') {
+    // 检测是否在 Capacitor App 中运行
+    const isCapacitorApp = typeof window.Capacitor !== 'undefined' || 
+                           window.location.protocol === 'capacitor:' ||
+                           window.location.protocol === 'ionic:' ||
+                           navigator.userAgent.includes('Capacitor');
+    
     if (window.location.hostname === 'sysu.asia' || 
         window.location.hostname === 'www.sysu.asia' ||
-        window.location.hostname === 'chat.sysu.asia') {
+        window.location.hostname === 'chat.sysu.asia' ||
+        isCapacitorApp) {
         CONFIG.env = 'production';
     }
 }

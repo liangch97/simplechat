@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我的网盘 - CloudDrive</title>
+    <link rel="stylesheet" href="css/files_modern.css">
+    <script src="js/lucide.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-layout">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo-area">
+                <div class="logo-icon">
+                    <i data-lucide="cloud" class="text-primary"></i>
+                </div>
+                <span class="logo-text">CloudDrive</span>
+            </div>
+            
+            <div class="upload-action">
+                <button class="btn btn-primary btn-block" id="btnUpload">
+                    <i data-lucide="plus"></i>
+                    <span>上传文件</span>
+                </button>
+            </div>
+
+            <nav class="nav-menu">
+                <a href="#" class="nav-item active" onclick="navigateToFolder('/'); return false;">
+                    <i data-lucide="hard-drive"></i>
+                    <span>全部文件</span>
+                </a>
+                <a href="#" class="nav-item">
+                    <i data-lucide="clock"></i>
+                    <span>最近访问</span>
+                </a>
+                <a href="#" class="nav-item">
+                    <i data-lucide="star"></i>
+                    <span>收藏夹</span>
+                </a>
+                <a href="#" class="nav-item">
+                    <i data-lucide="trash-2"></i>
+                    <span>回收站</span>
+                </a>
+            </nav>
+            
+            <div class="storage-widget">
+                <div class="storage-header">
+                    <span class="storage-label">存储空间</span>
+                    <span class="storage-value" id="storageText">计算中...</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="storageBar" style="width: 0%"></div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="top-bar">
+                <div class="search-container">
+                    <i data-lucide="search" class="search-icon"></i>
+                    <input type="text" id="searchInput" class="search-input" placeholder="搜索您的文件...">
+                </div>
+                <div class="user-actions">
+                    <button class="btn btn-icon" id="btnRefresh" title="刷新">
+                        <i data-lucide="refresh-cw"></i>
+                    </button>
+                    <div class="user-profile">
+                        <div class="avatar">
+                            <i data-lucide="user"></i>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <div class="content-wrapper">
+                <div class="toolbar-area">
+                    <div class="breadcrumb-container" id="breadcrumb">
+                        <!-- Breadcrumbs will be injected here -->
+                        <a href="#" data-path="/" class="breadcrumb-item">
+                            <i data-lucide="home"></i>
+                        </a>
+                    </div>
+                    <div class="view-actions">
+                        <button class="btn btn-outline" id="btnNewFolder">
+                            <i data-lucide="folder-plus"></i>
+                            <span>新建文件夹</span>
+                        </button>
+                        <div class="sort-dropdown">
+                            <select id="sortSelect" class="select-input">
+                                <option value="name">名称</option>
+                                <option value="date">日期</option>
+                                <option value="size">大小</option>
+                                <option value="type">类型</option>
+                            </select>
+                            <i data-lucide="chevron-down" class="select-icon"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="file-view-container">
+                    <div class="loading-state" id="loading">
+                        <i data-lucide="loader" class="spin"></i>
+                        <p>正在加载文件...</p>
+                    </div>
+                    
+                    <div class="file-grid" id="fileList">
+                        <!-- Files will be injected here -->
+                    </div>
+
+                    <div class="empty-state" id="emptyState" style="display: none;">
+                        <div class="empty-icon">
+                            <i data-lucide="folder-open"></i>
+                        </div>
+                        <h3>文件夹为空</h3>
+                        <p>您可以拖拽文件到此处上传，或点击左上角上传按钮</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Upload Modal -->
+    <div id="uploadModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>上传文件</h3>
+                <button class="btn-close" onclick="closeUploadModal()">
+                    <i data-lucide="x"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="uploadArea" class="upload-area">
+                    <i data-lucide="cloud-upload" class="upload-icon"></i>
+                    <p>点击或拖拽文件到此处</p>
+                    <input type="file" id="fileInput" multiple style="display: none;">
+                </div>
+                <div id="uploadProgress" class="upload-progress" style="display: none;">
+                    <div class="progress-info">
+                        <span id="uploadFileName">filename.txt</span>
+                        <span id="uploadPercent">0%</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="uploadProgressBar" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- New Folder Modal -->
+    <div id="newFolderModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>新建文件夹</h3>
+                <button class="btn-close" onclick="closeNewFolderModal()">
+                    <i data-lucide="x"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="newFolderName">文件夹名称</label>
+                    <br>
+                    <input type="text" id="newFolderName" class="form-input" placeholder="输入文件夹名称">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeNewFolderModal()">取消</button>
+                <button class="btn btn-primary" onclick="createNewFolder()">创建</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Context Menu -->
+    <div id="contextMenu" class="context-menu">
+        <div class="menu-item" onclick="downloadSelectedFile()">
+            <i data-lucide="download"></i> 下载
+        </div>
+        <div class="menu-item delete" onclick="deleteSelectedFile()">
+            <i data-lucide="trash-2"></i> 删除
+        </div>
+        <div class="menu-item" onclick="showRenameModal()">
+            <i data-lucide="edit-2"></i> 重命名
+        </div>
+        <div class="menu-item" onclick="showShareModal()">
+            <i data-lucide="share-2"></i> 分享
+        </div>
+    </div>
+
+    <!-- Folder Context Menu -->
+    <div id="folderContextMenu" class="context-menu">
+        <div class="menu-item" onclick="openSelectedFolder()">
+            <i data-lucide="folder-open"></i> 打开
+        </div>
+        <div class="menu-item delete" onclick="deleteSelectedFolder()">
+            <i data-lucide="trash-2"></i> 删除
+        </div>
+        <div class="menu-item" onclick="showRenameFolderModal()">
+            <i data-lucide="edit-2"></i> 重命名
+        </div>
+    </div>
+
+    <script src="js/config.js"></script>
+    <script src="js/files.js"></script>
+</body>
+</html>

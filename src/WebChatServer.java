@@ -1,3 +1,4 @@
+package app;
 import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
@@ -6,7 +7,9 @@ import com.sun.net.httpserver.HttpServer;
 import db.Db;
 import db.MessageDao;
 import db.UserDao;
+import db.FileDao;
 import util.Env;
+import util.FileManager;
 
 import java.io.*;
 import java.net.InetSocketAddress;
@@ -18,6 +21,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -99,6 +103,23 @@ public class WebChatServer {
         server.createContext("/api/ping", new PingHandler()); // 客户端心跳检测
         server.createContext("/api/disconnect", new DisconnectHandler()); // 客户端主动断开通知
         
+        // 文件管理 API
+        server.createContext("/api/files/upload", new FileUploadHandler()); // 用户文件上传
+        server.createContext("/api/files/list", new FileListHandler()); // 文件列表
+        server.createContext("/api/files/download", new FileDownloadHandler()); // 文件下载
+        server.createContext("/api/files/delete", new FileDeleteHandler()); // 删除文件
+        server.createContext("/api/files/search", new FileSearchHandler()); // 搜索文件
+        server.createContext("/api/files/quota", new FileQuotaHandler()); // 存储配额
+        server.createContext("/api/files/rename", new FileRenameHandler()); // 重命名文件
+        server.createContext("/api/files/move", new FileMoveHandler()); // 移动文件
+        
+        // 文件夹管理 API
+        server.createContext("/api/folders/create", new FolderCreateHandler()); // 创建文件夹
+        server.createContext("/api/folders/list", new FolderListHandler()); // 文件夹列表
+        server.createContext("/api/folders/delete", new FolderDeleteHandler()); // 删除文件夹
+        server.createContext("/api/folders/rename", new FolderRenameHandler()); // 重命名文件夹
+        server.createContext("/api/folders/contents", new FolderContentsHandler()); // 获取文件夹内容（文件夹+文件）
+        
         // 静态文件服务 (放在最后，作为默认处理器)
         server.createContext("/", new StaticFileHandler());
         
@@ -112,6 +133,7 @@ public class WebChatServer {
         try {
             MessageDao.init();
             UserDao.init();
+            FileDao.init();
             System.out.println("[DB] Database tables ready (if DB configured)");
         } catch (Exception e) {
             System.out.println("[DB] init skipped or failed: " + e.getMessage());
@@ -649,7 +671,7 @@ public class WebChatServer {
      * 支持图片和文件上传，使用 multipart/form-data
      */
     static class UploadHandler implements HttpHandler {
-        private static final long MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+        // 不限制单文件大小，由存储配额控制总空间
         
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -691,13 +713,8 @@ public class WebChatServer {
                     return;
                 }
                 
-                // 读取请求体
+                // 读取请求体（不限制大小）
                 byte[] bodyBytes = exchange.getRequestBody().readAllBytes();
-                
-                if (bodyBytes.length > MAX_FILE_SIZE) {
-                    respond(exchange, 413, "{\"error\":\"文件过大，最大支持100MB\"}");
-                    return;
-                }
                 
                 // 使用二进制方式解析 multipart 数据
                 byte[] boundaryBytes = ("--" + boundary).getBytes(StandardCharsets.ISO_8859_1);
@@ -972,6 +989,7 @@ public class WebChatServer {
 
     private static void respond(HttpExchange ex, int code, String msg) throws IOException {
         addCors(ex.getResponseHeaders());
+        ex.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
         byte[] bytes = msg.getBytes(StandardCharsets.UTF_8);
         ex.sendResponseHeaders(code, bytes.length);
         try (OutputStream os = ex.getResponseBody()) { 
@@ -980,9 +998,10 @@ public class WebChatServer {
     }
 
     private static void addCors(Headers h) {
-        h.add("Access-Control-Allow-Origin", "*");
-        h.add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-        h.add("Access-Control-Allow-Headers", "Content-Type");
+        // 使用 set 而不是 add，防止重复添加导致 "*, *" 的问题
+        h.set("Access-Control-Allow-Origin", "*");
+        h.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        h.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     }
 
     private static class SseClient {
@@ -1465,5 +1484,995 @@ public class WebChatServer {
         }, 10, 10, java.util.concurrent.TimeUnit.SECONDS);
         
         System.out.println("[CLEANUP] Started client cleanup task (every 10s, timeout 20s)");
+    }
+    
+    // ========== 文件管理 API ==========
+    
+    /**
+     * 用户文件上传
+     * POST /api/files/upload?roomKey=xxx&folder=/path
+     */
+    static class FileUploadHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+                addCors(exchange.getResponseHeaders());
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                respond(exchange, 405, "{\"error\":\"Method Not Allowed\"}");
+                return;
+            }
+            
+            addCors(exchange.getResponseHeaders());
+            exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
+            
+            try {
+                // 验证用户token
+                String authHeader = exchange.getRequestHeaders().getFirst("Authorization");
+                if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                    respond(exchange, 401, "{\"error\":\"未授权\"}");
+                    return;
+                }
+                String token = authHeader.substring(7);
+                UserDao.UserInfo userInfo = UserDao.validateToken(token);
+                if (userInfo == null) {
+                    respond(exchange, 401, "{\"error\":\"无效的token\"}");
+                    return;
+                }
+                
+                String roomKey = normalizeRoomKey(getQueryParam(exchange, "roomKey"));
+                String folderPath = getQueryParam(exchange, "folder");
+                if (folderPath.isEmpty()) {
+                    folderPath = "/";
+                }
+                
+                // 读取上传的文件数据
+                String contentType = exchange.getRequestHeaders().getFirst("Content-Type");
+                byte[] fileData = exchange.getRequestBody().readAllBytes();
+                
+                // 从header获取文件名
+                String fileName = exchange.getRequestHeaders().getFirst("X-File-Name");
+                if (fileName == null || fileName.isEmpty()) {
+                    fileName = "unnamed_" + System.currentTimeMillis();
+                } else {
+                    // URL解码文件名（前端使用encodeURIComponent编码）
+                    try {
+                        fileName = java.net.URLDecoder.decode(fileName, StandardCharsets.UTF_8);
+                    } catch (Exception e) {
+                        // 解码失败则使用原始值
+                    }
+                }
+                
+                // 保存文件
+                FileDao.FileInfo fileInfo = FileManager.saveFile(
+                    userInfo.userId, roomKey, fileName, folderPath, fileData, contentType
+                );
+                
+                // 返回文件信息
+                StringBuilder sb = new StringBuilder();
+                sb.append("{\"success\":true,\"file\":{");
+                sb.append("\"id\":").append(fileInfo.id);
+                sb.append(",\"name\":\"").append(escapeJson(fileInfo.fileName)).append("\"");
+                sb.append(",\"size\":").append(fileInfo.fileSize);
+                sb.append(",\"type\":\"").append(escapeJson(fileInfo.fileType)).append("\"");
+                sb.append(",\"folder\":\"").append(escapeJson(fileInfo.folderPath)).append("\"");
+                sb.append(",\"createdAt\":\"").append(fileInfo.createdAt).append("\"");
+                sb.append("}}");
+                
+                respond(exchange, 200, sb.toString());
+                
+            } catch (Exception e) {
+                e.printStackTrace();
+                respond(exchange, 500, "{\"error\":\"" + escapeJson(e.getMessage()) + "\"}");
+            }
+        }
+    }
+    
+    /**
+     * 获取用户文件列表
+     * GET /api/files/list?roomKey=xxx&folder=/path
+     */
+    static class FileListHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+                addCors(exchange.getResponseHeaders());
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                respond(exchange, 405, "{\"error\":\"Method Not Allowed\"}");
+                return;
+            }
+            
+            addCors(exchange.getResponseHeaders());
+            exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
+            
+            try {
+                // 验证用户token
+                String authHeader = exchange.getRequestHeaders().getFirst("Authorization");
+                if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                    respond(exchange, 401, "{\"error\":\"未授权\"}");
+                    return;
+                }
+                String token = authHeader.substring(7);
+                UserDao.UserInfo userInfo = UserDao.validateToken(token);
+                if (userInfo == null) {
+                    respond(exchange, 401, "{\"error\":\"无效的token\"}");
+                    return;
+                }
+                
+                String roomKey = normalizeRoomKey(getQueryParam(exchange, "roomKey"));
+                String folderPath = getQueryParam(exchange, "folder");
+                if (folderPath.isEmpty()) {
+                    folderPath = "/";
+                }
+                
+                // 获取文件列表
+                List<FileDao.FileInfo> files = FileManager.getUserFiles(userInfo.userId, folderPath, roomKey);
+                // 获取文件夹列表
+                List<FileDao.FolderInfo> folders = FileManager.getUserFolders(userInfo.userId, folderPath, roomKey);
+                
+                // 构建JSON响应
+                StringBuilder sb = new StringBuilder();
+                sb.append("{\"success\":true,\"folders\":[");
+                for (int i = 0; i < folders.size(); i++) {
+                    if (i > 0) sb.append(",");
+                    FileDao.FolderInfo folder = folders.get(i);
+                    sb.append("{\"id\":").append(folder.id);
+                    sb.append(",\"name\":\"").append(escapeJson(folder.folderName)).append("\"");
+                    sb.append(",\"path\":\"").append(escapeJson(folder.folderPath)).append("\"");
+                    sb.append(",\"parentPath\":\"").append(escapeJson(folder.parentPath)).append("\"");
+                    sb.append(",\"createdAt\":\"").append(folder.createdAt).append("\"");
+                    sb.append("}");
+                }
+                sb.append("],\"files\":[");
+                for (int i = 0; i < files.size(); i++) {
+                    if (i > 0) sb.append(",");
+                    FileDao.FileInfo f = files.get(i);
+                    sb.append("{\"id\":").append(f.id);
+                    sb.append(",\"name\":\"").append(escapeJson(f.fileName)).append("\"");
+                    sb.append(",\"size\":").append(f.fileSize);
+                    sb.append(",\"sizeFormatted\":\"").append(FileManager.formatFileSize(f.fileSize)).append("\"");
+                    sb.append(",\"type\":\"").append(escapeJson(f.fileType != null ? f.fileType : "")).append("\"");
+                    sb.append(",\"extension\":\"").append(escapeJson(f.fileExtension != null ? f.fileExtension : "")).append("\"");
+                    sb.append(",\"folder\":\"").append(escapeJson(f.folderPath)).append("\"");
+                    sb.append(",\"downloads\":").append(f.downloadCount);
+                    sb.append(",\"createdAt\":\"").append(f.createdAt).append("\"");
+                    sb.append("}");
+                }
+                sb.append("]}");
+                
+                respond(exchange, 200, sb.toString());
+                
+            } catch (Exception e) {
+                e.printStackTrace();
+                respond(exchange, 500, "{\"error\":\"" + escapeJson(e.getMessage()) + "\"}");
+            }
+        }
+    }
+    
+    /**
+     * 下载文件
+     * GET /api/files/download?roomKey=xxx&fileId=123
+     */
+    static class FileDownloadHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+                addCors(exchange.getResponseHeaders());
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                respond(exchange, 405, "{\"error\":\"Method Not Allowed\"}");
+                return;
+            }
+            
+            addCors(exchange.getResponseHeaders());
+            
+            try {
+                // 验证用户token
+                String authHeader = exchange.getRequestHeaders().getFirst("Authorization");
+                if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                    respond(exchange, 401, "{\"error\":\"未授权\"}");
+                    return;
+                }
+                String token = authHeader.substring(7);
+                UserDao.UserInfo userInfo = UserDao.validateToken(token);
+                if (userInfo == null) {
+                    respond(exchange, 401, "{\"error\":\"无效的token\"}");
+                    return;
+                }
+                
+                String roomKey = normalizeRoomKey(getQueryParam(exchange, "roomKey"));
+                
+                // 验证 roomKey 是否有效
+                if (!db.Db.isValidRoomKey(roomKey)) {
+                    respond(exchange, 400, "{\"error\":\"无效的房间秘钥\"}");
+                    return;
+                }
+                
+                // 验证 roomKey 与用户绑定的房间一致
+                if (userInfo.roomKey != null && !userInfo.roomKey.isEmpty() 
+                    && !roomKey.equals(normalizeRoomKey(userInfo.roomKey))) {
+                    respond(exchange, 403, "{\"error\":\"无权限访问该房间的文件\"}");
+                    return;
+                }
+                
+                String fileIdStr = getQueryParam(exchange, "fileId");
+                if (fileIdStr == null || fileIdStr.isEmpty()) {
+                    respond(exchange, 400, "{\"error\":\"缺少文件ID\"}");
+                    return;
+                }
+                long fileId = Long.parseLong(fileIdStr);
+                
+                // 获取文件信息
+                FileDao.FileInfo fileInfo = FileDao.getFileById(fileId, roomKey);
+                if (fileInfo == null) {
+                    respond(exchange, 404, "{\"error\":\"文件不存在\"}");
+                    return;
+                }
+                
+                // 同一房间的成员都可以访问该房间的文件（群文件共享）
+                // 不再检查 fileInfo.userId != userInfo.userId
+                
+                // 直接读取文件，避免重复查询数据库
+                java.nio.file.Path filePath = java.nio.file.Paths.get(fileInfo.filePath);
+                if (!java.nio.file.Files.exists(filePath)) {
+                    respond(exchange, 404, "{\"error\":\"文件物理存储不存在\"}");
+                    return;
+                }
+                
+                byte[] fileData = java.nio.file.Files.readAllBytes(filePath);
+                
+                // 更新下载次数
+                FileDao.incrementDownloadCount(fileId, roomKey);
+                
+                // 设置响应头
+                exchange.getResponseHeaders().add("Content-Type", 
+                    fileInfo.fileType != null ? fileInfo.fileType : "application/octet-stream");
+                exchange.getResponseHeaders().add("Content-Disposition", 
+                    "attachment; filename=\"" + fileInfo.fileName + "\"");
+                
+                // 发送文件
+                exchange.sendResponseHeaders(200, fileData.length);
+                try (OutputStream os = exchange.getResponseBody()) {
+                    os.write(fileData);
+                }
+                
+            } catch (Exception e) {
+                e.printStackTrace();
+                respond(exchange, 500, "{\"error\":\"" + escapeJson(e.getMessage()) + "\"}");
+            }
+        }
+    }
+    
+    /**
+     * 删除文件
+     * POST /api/files/delete
+     * Body: {"roomKey":"xxx","fileId":123}
+     */
+    static class FileDeleteHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+                addCors(exchange.getResponseHeaders());
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                respond(exchange, 405, "{\"error\":\"Method Not Allowed\"}");
+                return;
+            }
+            
+            addCors(exchange.getResponseHeaders());
+            exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
+            
+            try {
+                // 验证用户token
+                String authHeader = exchange.getRequestHeaders().getFirst("Authorization");
+                if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                    respond(exchange, 401, "{\"error\":\"未授权\"}");
+                    return;
+                }
+                String token = authHeader.substring(7);
+                UserDao.UserInfo userInfo = UserDao.validateToken(token);
+                if (userInfo == null) {
+                    respond(exchange, 401, "{\"error\":\"无效的token\"}");
+                    return;
+                }
+                
+                // 解析请求体
+                String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+                String roomKey = normalizeRoomKey(extract(body, "roomKey"));
+                String fileIdStr = extractNumber(body, "fileId");
+                if (fileIdStr.isEmpty()) {
+                    respond(exchange, 400, "{\"error\":\"缺少文件ID\"}");
+                    return;
+                }
+                long fileId = Long.parseLong(fileIdStr);
+                
+                // 删除文件
+                boolean deleted = FileManager.deleteFile(fileId, userInfo.userId, roomKey);
+                
+                if (deleted) {
+                    respond(exchange, 200, "{\"success\":true}");
+                } else {
+                    respond(exchange, 404, "{\"error\":\"文件不存在或无权限删除\"}");
+                }
+                
+            } catch (Exception e) {
+                e.printStackTrace();
+                respond(exchange, 500, "{\"error\":\"" + escapeJson(e.getMessage()) + "\"}");
+            }
+        }
+    }
+    
+    /**
+     * 搜索文件
+     * GET /api/files/search?roomKey=xxx&keyword=test
+     */
+    static class FileSearchHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+                addCors(exchange.getResponseHeaders());
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                respond(exchange, 405, "{\"error\":\"Method Not Allowed\"}");
+                return;
+            }
+            
+            addCors(exchange.getResponseHeaders());
+            exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
+            
+            try {
+                // 验证用户token
+                String authHeader = exchange.getRequestHeaders().getFirst("Authorization");
+                if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                    respond(exchange, 401, "{\"error\":\"未授权\"}");
+                    return;
+                }
+                String token = authHeader.substring(7);
+                UserDao.UserInfo userInfo = UserDao.validateToken(token);
+                if (userInfo == null) {
+                    respond(exchange, 401, "{\"error\":\"无效的token\"}");
+                    return;
+                }
+                
+                String roomKey = normalizeRoomKey(getQueryParam(exchange, "roomKey"));
+                String keyword = getQueryParam(exchange, "keyword");
+                
+                // 搜索文件
+                List<FileDao.FileInfo> files = FileManager.searchFiles(userInfo.userId, keyword, roomKey);
+                
+                // 构建JSON响应
+                StringBuilder sb = new StringBuilder();
+                sb.append("{\"success\":true,\"files\":[");
+                for (int i = 0; i < files.size(); i++) {
+                    if (i > 0) sb.append(",");
+                    FileDao.FileInfo f = files.get(i);
+                    sb.append("{\"id\":").append(f.id);
+                    sb.append(",\"name\":\"").append(escapeJson(f.fileName)).append("\"");
+                    sb.append(",\"size\":").append(f.fileSize);
+                    sb.append(",\"sizeFormatted\":\"").append(FileManager.formatFileSize(f.fileSize)).append("\"");
+                    sb.append(",\"type\":\"").append(escapeJson(f.fileType != null ? f.fileType : "")).append("\"");
+                    sb.append(",\"folder\":\"").append(escapeJson(f.folderPath)).append("\"");
+                    sb.append(",\"createdAt\":\"").append(f.createdAt).append("\"");
+                    sb.append("}");
+                }
+                sb.append("]}");
+                
+                respond(exchange, 200, sb.toString());
+                
+            } catch (Exception e) {
+                e.printStackTrace();
+                respond(exchange, 500, "{\"error\":\"" + escapeJson(e.getMessage()) + "\"}");
+            }
+        }
+    }
+    
+    /**
+     * 获取用户存储配额信息
+     * GET /api/files/quota?roomKey=xxx
+     */
+    static class FileQuotaHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+                addCors(exchange.getResponseHeaders());
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                respond(exchange, 405, "{\"error\":\"Method Not Allowed\"}");
+                return;
+            }
+            
+            addCors(exchange.getResponseHeaders());
+            exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
+            
+            try {
+                // 验证用户token
+                String authHeader = exchange.getRequestHeaders().getFirst("Authorization");
+                if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                    respond(exchange, 401, "{\"error\":\"未授权\"}");
+                    return;
+                }
+                String token = authHeader.substring(7);
+                UserDao.UserInfo userInfo = UserDao.validateToken(token);
+                if (userInfo == null) {
+                    respond(exchange, 401, "{\"error\":\"无效的token\"}");
+                    return;
+                }
+                
+                String roomKey = normalizeRoomKey(getQueryParam(exchange, "roomKey"));
+                
+                // 获取存储信息
+                FileDao.StorageQuota quota = FileManager.getUserStorageInfo(userInfo.userId, roomKey);
+                
+                // 构建JSON响应
+                StringBuilder sb = new StringBuilder();
+                sb.append("{\"success\":true,\"quota\":{");
+                sb.append("\"total\":").append(quota.totalQuota);
+                sb.append(",\"used\":").append(quota.usedSpace);
+                sb.append(",\"available\":").append(quota.totalQuota - quota.usedSpace);
+                sb.append(",\"fileCount\":").append(quota.fileCount);
+                sb.append(",\"totalFormatted\":\"").append(FileManager.formatFileSize(quota.totalQuota)).append("\"");
+                sb.append(",\"usedFormatted\":\"").append(FileManager.formatFileSize(quota.usedSpace)).append("\"");
+                sb.append(",\"availableFormatted\":\"").append(FileManager.formatFileSize(quota.totalQuota - quota.usedSpace)).append("\"");
+                sb.append(",\"usagePercent\":").append((quota.usedSpace * 100) / quota.totalQuota);
+                sb.append("}}");
+                
+                respond(exchange, 200, sb.toString());
+                
+            } catch (Exception e) {
+                e.printStackTrace();
+                respond(exchange, 500, "{\"error\":\"" + escapeJson(e.getMessage()) + "\"}");
+            }
+        }
+    }
+    
+    /**
+     * 重命名文件
+     * POST /api/files/rename
+     * Body: {"roomKey":"xxx","fileId":123,"newName":"新文件名"}
+     */
+    static class FileRenameHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+                addCors(exchange.getResponseHeaders());
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                respond(exchange, 405, "{\"error\":\"Method Not Allowed\"}");
+                return;
+            }
+            
+            addCors(exchange.getResponseHeaders());
+            exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
+            
+            try {
+                // 验证用户token
+                String authHeader = exchange.getRequestHeaders().getFirst("Authorization");
+                if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                    respond(exchange, 401, "{\"error\":\"未授权\"}");
+                    return;
+                }
+                String token = authHeader.substring(7);
+                UserDao.UserInfo userInfo = UserDao.validateToken(token);
+                if (userInfo == null) {
+                    respond(exchange, 401, "{\"error\":\"无效的token\"}");
+                    return;
+                }
+                
+                // 解析请求体
+                String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+                String roomKey = normalizeRoomKey(extract(body, "roomKey"));
+                String fileIdStr = extractNumber(body, "fileId");
+                String newName = extract(body, "newName");
+                
+                if (fileIdStr.isEmpty() || newName.isEmpty()) {
+                    respond(exchange, 400, "{\"error\":\"缺少必要参数\"}");
+                    return;
+                }
+                
+                long fileId = Long.parseLong(fileIdStr);
+                
+                // 重命名文件
+                boolean renamed = FileManager.renameFile(fileId, userInfo.userId, newName, roomKey);
+                
+                if (renamed) {
+                    respond(exchange, 200, "{\"success\":true}");
+                } else {
+                    respond(exchange, 404, "{\"error\":\"文件不存在或无权限\"}");
+                }
+                
+            } catch (Exception e) {
+                e.printStackTrace();
+                respond(exchange, 500, "{\"error\":\"" + escapeJson(e.getMessage()) + "\"}");
+            }
+        }
+    }
+    
+    /**
+     * 移动文件到其他文件夹
+     * POST /api/files/move
+     * Body: {"roomKey":"xxx","fileId":123,"targetFolder":"/newPath"}
+     */
+    static class FileMoveHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+                addCors(exchange.getResponseHeaders());
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                respond(exchange, 405, "{\"error\":\"Method Not Allowed\"}");
+                return;
+            }
+            
+            addCors(exchange.getResponseHeaders());
+            exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
+            
+            try {
+                // 验证用户token
+                String authHeader = exchange.getRequestHeaders().getFirst("Authorization");
+                if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                    respond(exchange, 401, "{\"error\":\"未授权\"}");
+                    return;
+                }
+                String token = authHeader.substring(7);
+                UserDao.UserInfo userInfo = UserDao.validateToken(token);
+                if (userInfo == null) {
+                    respond(exchange, 401, "{\"error\":\"无效的token\"}");
+                    return;
+                }
+                
+                // 解析请求体
+                String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+                String roomKey = normalizeRoomKey(extract(body, "roomKey"));
+                String fileIdStr = extractNumber(body, "fileId");
+                String targetFolder = extract(body, "targetFolder");
+                
+                if (fileIdStr.isEmpty()) {
+                    respond(exchange, 400, "{\"error\":\"缺少文件ID\"}");
+                    return;
+                }
+                
+                long fileId = Long.parseLong(fileIdStr);
+                if (targetFolder.isEmpty()) {
+                    targetFolder = "/";
+                }
+                
+                // 移动文件
+                boolean moved = FileManager.moveFile(fileId, userInfo.userId, targetFolder, roomKey);
+                
+                if (moved) {
+                    respond(exchange, 200, "{\"success\":true}");
+                } else {
+                    respond(exchange, 404, "{\"error\":\"文件不存在或无权限\"}");
+                }
+                
+            } catch (Exception e) {
+                e.printStackTrace();
+                respond(exchange, 500, "{\"error\":\"" + escapeJson(e.getMessage()) + "\"}");
+            }
+        }
+    }
+    
+    // ========== 文件夹管理 API ==========
+    
+    /**
+     * 创建文件夹
+     * POST /api/folders/create
+     * Body: {"roomKey":"xxx","folderName":"文件夹名","parentPath":"/"}
+     */
+    static class FolderCreateHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+                addCors(exchange.getResponseHeaders());
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                respond(exchange, 405, "{\"error\":\"Method Not Allowed\"}");
+                return;
+            }
+            
+            addCors(exchange.getResponseHeaders());
+            exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
+            
+            try {
+                // 验证用户token
+                String authHeader = exchange.getRequestHeaders().getFirst("Authorization");
+                if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                    respond(exchange, 401, "{\"error\":\"未授权\"}");
+                    return;
+                }
+                String token = authHeader.substring(7);
+                UserDao.UserInfo userInfo = UserDao.validateToken(token);
+                if (userInfo == null) {
+                    respond(exchange, 401, "{\"error\":\"无效的token\"}");
+                    return;
+                }
+                
+                // 解析请求体
+                String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+                String roomKey = normalizeRoomKey(extract(body, "roomKey"));
+                String folderName = extract(body, "folderName");
+                String parentPath = extract(body, "parentPath");
+                
+                if (folderName.isEmpty()) {
+                    respond(exchange, 400, "{\"error\":\"文件夹名称不能为空\"}");
+                    return;
+                }
+                
+                if (parentPath.isEmpty()) {
+                    parentPath = "/";
+                }
+                
+                // 创建文件夹
+                FileDao.FolderInfo folder = FileManager.createFolder(userInfo.userId, folderName, parentPath, roomKey);
+                
+                // 返回文件夹信息
+                StringBuilder sb = new StringBuilder();
+                sb.append("{\"success\":true,\"folder\":{");
+                sb.append("\"id\":").append(folder.id);
+                sb.append(",\"name\":\"").append(escapeJson(folder.folderName)).append("\"");
+                sb.append(",\"path\":\"").append(escapeJson(folder.folderPath)).append("\"");
+                sb.append(",\"parentPath\":\"").append(escapeJson(folder.parentPath)).append("\"");
+                sb.append(",\"createdAt\":\"").append(folder.createdAt).append("\"");
+                sb.append("}}");
+                
+                respond(exchange, 200, sb.toString());
+                
+            } catch (Exception e) {
+                e.printStackTrace();
+                String errorMsg = e.getMessage();
+                // MySQL: "Duplicate entry", SQL Server: "Violation of UNIQUE KEY constraint" 或 "Cannot insert duplicate key"
+                if (errorMsg != null && (errorMsg.contains("Duplicate entry") || 
+                    errorMsg.contains("UNIQUE KEY constraint") || 
+                    errorMsg.contains("duplicate key"))) {
+                    respond(exchange, 400, "{\"error\":\"文件夹已存在\"}");
+                } else {
+                    respond(exchange, 500, "{\"error\":\"" + escapeJson(errorMsg) + "\"}");
+                }
+            }
+        }
+    }
+    
+    /**
+     * 获取文件夹列表
+     * GET /api/folders/list?roomKey=xxx&parentPath=/
+     */
+    static class FolderListHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+                addCors(exchange.getResponseHeaders());
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                respond(exchange, 405, "{\"error\":\"Method Not Allowed\"}");
+                return;
+            }
+            
+            addCors(exchange.getResponseHeaders());
+            exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
+            
+            try {
+                // 验证用户token
+                String authHeader = exchange.getRequestHeaders().getFirst("Authorization");
+                if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                    respond(exchange, 401, "{\"error\":\"未授权\"}");
+                    return;
+                }
+                String token = authHeader.substring(7);
+                UserDao.UserInfo userInfo = UserDao.validateToken(token);
+                if (userInfo == null) {
+                    respond(exchange, 401, "{\"error\":\"无效的token\"}");
+                    return;
+                }
+                
+                String roomKey = normalizeRoomKey(getQueryParam(exchange, "roomKey"));
+                String parentPath = getQueryParam(exchange, "parentPath");
+                if (parentPath.isEmpty()) {
+                    parentPath = "/";
+                }
+                
+                // 获取文件夹列表
+                List<FileDao.FolderInfo> folders = FileManager.getUserFolders(userInfo.userId, parentPath, roomKey);
+                
+                // 构建JSON响应
+                StringBuilder sb = new StringBuilder();
+                sb.append("{\"success\":true,\"folders\":[");
+                for (int i = 0; i < folders.size(); i++) {
+                    if (i > 0) sb.append(",");
+                    FileDao.FolderInfo f = folders.get(i);
+                    sb.append("{\"id\":").append(f.id);
+                    sb.append(",\"name\":\"").append(escapeJson(f.folderName)).append("\"");
+                    sb.append(",\"path\":\"").append(escapeJson(f.folderPath)).append("\"");
+                    sb.append(",\"parentPath\":\"").append(escapeJson(f.parentPath)).append("\"");
+                    sb.append(",\"createdAt\":\"").append(f.createdAt).append("\"");
+                    sb.append("}");
+                }
+                sb.append("]}");
+                
+                respond(exchange, 200, sb.toString());
+                
+            } catch (Exception e) {
+                e.printStackTrace();
+                respond(exchange, 500, "{\"error\":\"" + escapeJson(e.getMessage()) + "\"}");
+            }
+        }
+    }
+    
+    /**
+     * 删除文件夹
+     * POST /api/folders/delete
+     * Body: {"roomKey":"xxx","folderId":123,"recursive":false}
+     */
+    static class FolderDeleteHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+                addCors(exchange.getResponseHeaders());
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                respond(exchange, 405, "{\"error\":\"Method Not Allowed\"}");
+                return;
+            }
+            
+            addCors(exchange.getResponseHeaders());
+            exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
+            
+            try {
+                // 验证用户token
+                String authHeader = exchange.getRequestHeaders().getFirst("Authorization");
+                if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                    respond(exchange, 401, "{\"error\":\"未授权\"}");
+                    return;
+                }
+                String token = authHeader.substring(7);
+                UserDao.UserInfo userInfo = UserDao.validateToken(token);
+                if (userInfo == null) {
+                    respond(exchange, 401, "{\"error\":\"无效的token\"}");
+                    return;
+                }
+                
+                // 解析请求体
+                String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+                String roomKey = normalizeRoomKey(extract(body, "roomKey"));
+                String folderIdStr = extractNumber(body, "folderId");
+                String folderPath = extract(body, "folderPath");
+                boolean recursive = "true".equals(extract(body, "recursive"));
+                
+                boolean deleted = false;
+                
+                if (!folderPath.isEmpty() && recursive) {
+                    // 递归删除文件夹及其所有内容
+                    deleted = FileManager.deleteFolderRecursive(userInfo.userId, folderPath, roomKey);
+                } else if (!folderIdStr.isEmpty()) {
+                    // 普通删除（需要文件夹为空）
+                    long folderId = Long.parseLong(folderIdStr);
+                    
+                    // 先检查文件夹是否为空
+                    if (!folderPath.isEmpty()) {
+                        boolean isEmpty = FileManager.isFolderEmpty(userInfo.userId, folderPath, roomKey);
+                        if (!isEmpty) {
+                            respond(exchange, 400, "{\"error\":\"文件夹不为空，请先删除其中的文件和子文件夹，或使用递归删除\"}");
+                            return;
+                        }
+                    }
+                    
+                    deleted = FileManager.deleteFolder(folderId, userInfo.userId, roomKey);
+                } else {
+                    respond(exchange, 400, "{\"error\":\"缺少文件夹ID或路径\"}");
+                    return;
+                }
+                
+                if (deleted) {
+                    respond(exchange, 200, "{\"success\":true}");
+                } else {
+                    respond(exchange, 404, "{\"error\":\"文件夹不存在或无权限\"}");
+                }
+                
+            } catch (Exception e) {
+                e.printStackTrace();
+                respond(exchange, 500, "{\"error\":\"" + escapeJson(e.getMessage()) + "\"}");
+            }
+        }
+    }
+    
+    /**
+     * 重命名文件夹
+     * POST /api/folders/rename
+     * Body: {"roomKey":"xxx","folderId":123,"newName":"新名称"}
+     */
+    static class FolderRenameHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+                addCors(exchange.getResponseHeaders());
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                respond(exchange, 405, "{\"error\":\"Method Not Allowed\"}");
+                return;
+            }
+            
+            addCors(exchange.getResponseHeaders());
+            exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
+            
+            try {
+                // 验证用户token
+                String authHeader = exchange.getRequestHeaders().getFirst("Authorization");
+                if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                    respond(exchange, 401, "{\"error\":\"未授权\"}");
+                    return;
+                }
+                String token = authHeader.substring(7);
+                UserDao.UserInfo userInfo = UserDao.validateToken(token);
+                if (userInfo == null) {
+                    respond(exchange, 401, "{\"error\":\"无效的token\"}");
+                    return;
+                }
+                
+                // 解析请求体
+                String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+                String roomKey = normalizeRoomKey(extract(body, "roomKey"));
+                String folderIdStr = extractNumber(body, "folderId");
+                String newName = extract(body, "newName");
+                
+                if (folderIdStr.isEmpty()) {
+                    respond(exchange, 400, "{\"error\":\"缺少文件夹ID\"}");
+                    return;
+                }
+                
+                if (newName.isEmpty()) {
+                    respond(exchange, 400, "{\"error\":\"新名称不能为空\"}");
+                    return;
+                }
+                
+                long folderId = Long.parseLong(folderIdStr);
+                
+                boolean renamed = FileManager.renameFolder(folderId, userInfo.userId, newName, roomKey);
+                
+                if (renamed) {
+                    respond(exchange, 200, "{\"success\":true}");
+                } else {
+                    respond(exchange, 404, "{\"error\":\"文件夹不存在或无权限\"}");
+                }
+                
+            } catch (Exception e) {
+                e.printStackTrace();
+                String errorMsg = e.getMessage();
+                if (errorMsg != null && (errorMsg.contains("Duplicate entry") || 
+                    errorMsg.contains("UNIQUE KEY constraint") || 
+                    errorMsg.contains("duplicate key"))) {
+                    respond(exchange, 400, "{\"error\":\"文件夹名称已存在\"}");
+                } else {
+                    respond(exchange, 500, "{\"error\":\"" + escapeJson(errorMsg) + "\"}");
+                }
+            }
+        }
+    }
+    
+    /**
+     * 获取文件夹内容（文件夹 + 文件）
+     * GET /api/folders/contents?roomKey=xxx&path=/
+     */
+    static class FolderContentsHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+                addCors(exchange.getResponseHeaders());
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                respond(exchange, 405, "{\"error\":\"Method Not Allowed\"}");
+                return;
+            }
+            
+            addCors(exchange.getResponseHeaders());
+            exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
+            
+            try {
+                // 验证用户token
+                String authHeader = exchange.getRequestHeaders().getFirst("Authorization");
+                if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                    respond(exchange, 401, "{\"error\":\"未授权\"}");
+                    return;
+                }
+                String token = authHeader.substring(7);
+                UserDao.UserInfo userInfo = UserDao.validateToken(token);
+                if (userInfo == null) {
+                    respond(exchange, 401, "{\"error\":\"无效的token\"}");
+                    return;
+                }
+                
+                String roomKey = normalizeRoomKey(getQueryParam(exchange, "roomKey"));
+                String path = getQueryParam(exchange, "path");
+                if (path.isEmpty()) {
+                    path = "/";
+                }
+                
+                // 获取子文件夹
+                List<FileDao.FolderInfo> folders = FileManager.getUserFolders(userInfo.userId, path, roomKey);
+                // 获取文件
+                List<FileDao.FileInfo> files = FileManager.getUserFiles(userInfo.userId, path, roomKey);
+                
+                // 构建JSON响应
+                StringBuilder sb = new StringBuilder();
+                sb.append("{\"success\":true,\"currentPath\":\"").append(escapeJson(path)).append("\",");
+                
+                // 文件夹列表
+                sb.append("\"folders\":[");
+                for (int i = 0; i < folders.size(); i++) {
+                    if (i > 0) sb.append(",");
+                    FileDao.FolderInfo f = folders.get(i);
+                    sb.append("{\"id\":").append(f.id);
+                    sb.append(",\"name\":\"").append(escapeJson(f.folderName)).append("\"");
+                    sb.append(",\"path\":\"").append(escapeJson(f.folderPath)).append("\"");
+                    sb.append(",\"type\":\"folder\"");
+                    sb.append(",\"createdAt\":\"").append(f.createdAt).append("\"");
+                    sb.append("}");
+                }
+                sb.append("],");
+                
+                // 文件列表
+                sb.append("\"files\":[");
+                for (int i = 0; i < files.size(); i++) {
+                    if (i > 0) sb.append(",");
+                    FileDao.FileInfo f = files.get(i);
+                    sb.append("{\"id\":").append(f.id);
+                    sb.append(",\"name\":\"").append(escapeJson(f.fileName)).append("\"");
+                    sb.append(",\"size\":").append(f.fileSize);
+                    sb.append(",\"sizeFormatted\":\"").append(FileManager.formatFileSize(f.fileSize)).append("\"");
+                    sb.append(",\"type\":\"file\"");
+                    sb.append(",\"mimeType\":\"").append(escapeJson(f.fileType != null ? f.fileType : "")).append("\"");
+                    sb.append(",\"extension\":\"").append(escapeJson(f.fileExtension != null ? f.fileExtension : "")).append("\"");
+                    sb.append(",\"folder\":\"").append(escapeJson(f.folderPath)).append("\"");
+                    sb.append(",\"downloads\":").append(f.downloadCount);
+                    sb.append(",\"createdAt\":\"").append(f.createdAt).append("\"");
+                    sb.append("}");
+                }
+                sb.append("]}");
+                
+                respond(exchange, 200, sb.toString());
+                
+            } catch (Exception e) {
+                e.printStackTrace();
+                respond(exchange, 500, "{\"error\":\"" + escapeJson(e.getMessage()) + "\"}");
+            }
+        }
     }
 }

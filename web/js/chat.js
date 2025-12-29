@@ -24,11 +24,15 @@ class ChatApp {
         this.lastMessageTime = 0; // 最后一条消息的时间戳
         this.isPageHidden = false; // 页面是否在后台
         this.swRegistration = null; // Service Worker 注册
+        this.displayedMessages = new Set(); // 用于消息去重，防止重复显示
         
         this.init();
     }
 
     init() {
+        // 一次性清理旧的可能有重复消息的缓存（版本升级后自动清理）
+        this.cleanupDuplicateCache();
+        
         this.cacheElements();
         if (this.loginRoomKey) {
             this.loginRoomKey.value = this.roomKey;
@@ -38,6 +42,42 @@ class ChatApp {
         this.restoreSession();
         this.registerServiceWorker();
         this.requestNotificationPermission();
+    }
+    
+    // 清理缓存中的重复消息（一次性修复）
+    cleanupDuplicateCache() {
+        const cacheVersion = localStorage.getItem('sysu_chat_cache_version');
+        if (cacheVersion === '2') return; // 已清理过
+        
+        console.log('[Cache] Cleaning up duplicate messages in cache...');
+        try {
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && key.startsWith('sysu_chat_cache_')) {
+                    const data = localStorage.getItem(key);
+                    if (data) {
+                        const parsed = JSON.parse(data);
+                        if (parsed && parsed.messages && Array.isArray(parsed.messages)) {
+                            const seen = new Set();
+                            const originalLength = parsed.messages.length;
+                            parsed.messages = parsed.messages.filter(msg => {
+                                const msgKey = msg.trim();
+                                if (seen.has(msgKey)) return false;
+                                seen.add(msgKey);
+                                return true;
+                            });
+                            if (parsed.messages.length < originalLength) {
+                                console.log(`[Cache] Removed ${originalLength - parsed.messages.length} duplicates from ${key}`);
+                                localStorage.setItem(key, JSON.stringify(parsed));
+                            }
+                        }
+                    }
+                }
+            }
+            localStorage.setItem('sysu_chat_cache_version', '2');
+        } catch (e) {
+            console.warn('[Cache] Cleanup failed:', e);
+        }
     }
 
     cacheElements() {
@@ -812,8 +852,14 @@ class ChatApp {
                                     this.handleMessage(line, true, false, true);
                                 }
                                 this.scrollToBottom();
-                                // 更新缓存
-                                cached.messages.push(...newMessages);
+                                // 更新缓存（先去重再添加）
+                                const existingSet = new Set(cached.messages.map(m => m.trim()));
+                                for (const msg of newMessages) {
+                                    if (!existingSet.has(msg.trim())) {
+                                        cached.messages.push(msg);
+                                        existingSet.add(msg.trim());
+                                    }
+                                }
                                 // 只保留最近的消息（限制缓存大小）
                                 if (cached.messages.length > 200) {
                                     cached.messages = cached.messages.slice(-200);
@@ -935,12 +981,25 @@ class ChatApp {
         }
     }
     
-    // 从缓存加载消息
+    // 从缓存加载消息（自动去重）
     loadFromCache(cacheKey) {
         try {
             const cached = localStorage.getItem(cacheKey);
             if (cached) {
-                return JSON.parse(cached);
+                const data = JSON.parse(cached);
+                // 对缓存中的消息进行去重
+                if (data && data.messages && Array.isArray(data.messages)) {
+                    const seen = new Set();
+                    data.messages = data.messages.filter(msg => {
+                        const key = msg.trim();
+                        if (seen.has(key)) {
+                            return false;
+                        }
+                        seen.add(key);
+                        return true;
+                    });
+                }
+                return data;
             }
         } catch (e) {
             console.warn('[Cache] Load failed:', e);
@@ -964,18 +1023,22 @@ class ChatApp {
         }
     }
     
-    // 添加新消息到缓存
+    // 添加新消息到缓存（带去重）
     addToCache(message) {
         const cacheKey = `sysu_chat_cache_${this.roomKey}`;
         try {
             const cached = this.loadFromCache(cacheKey) || { messages: [], timestamp: 0 };
-            cached.messages.push(message);
-            // 限制缓存大小
-            if (cached.messages.length > 200) {
-                cached.messages = cached.messages.slice(-200);
+            // 检查消息是否已存在于缓存中（去重）
+            const msgKey = message.trim();
+            if (!cached.messages.some(m => m.trim() === msgKey)) {
+                cached.messages.push(message);
+                // 限制缓存大小
+                if (cached.messages.length > 200) {
+                    cached.messages = cached.messages.slice(-200);
+                }
+                cached.timestamp = Date.now();
+                this.saveToCache(cacheKey, cached);
             }
-            cached.timestamp = Date.now();
-            this.saveToCache(cacheKey, cached);
         } catch (e) {
             console.warn('[Cache] Add message failed:', e);
         }
@@ -985,6 +1048,12 @@ class ChatApp {
     
     // 注册 Service Worker
     async registerServiceWorker() {
+        // 在 Capacitor App 中跳过 Service Worker
+        if (typeof window.Capacitor !== 'undefined' || window.location.protocol === 'capacitor:') {
+            console.log('[SW] Skipped in Capacitor App');
+            return;
+        }
+        
         if ('serviceWorker' in navigator) {
             try {
                 this.swRegistration = await navigator.serviceWorker.register('/sw.js');
@@ -1341,11 +1410,27 @@ class ChatApp {
     }
 
     handleMessage(data, isHistory = false, insertAtTop = false, skipScroll = false) {
+        // 生成消息唯一标识（基于原始消息文本）用于去重
+        const messageKey = data.trim();
+        
+        // 检查消息是否已经显示过（防止重复）
+        if (this.displayedMessages.has(messageKey)) {
+            console.log('[Message] Duplicate message skipped:', messageKey.substring(0, 50));
+            return;
+        }
+        
         // 解析消息格式: [HH:mm:ss] 昵称: 内容
         const match = data.match(/^\[(\d{2}:\d{2}:\d{2})\]\s+(.+?):\s+(.+)$/);
         
         if (match) {
             const [, time, sender, text] = match;
+            // 记录已显示的消息（用于去重）
+            this.displayedMessages.add(messageKey);
+            // 限制集合大小，防止内存泄漏（保留最近 500 条）
+            if (this.displayedMessages.size > 500) {
+                const iterator = this.displayedMessages.values();
+                this.displayedMessages.delete(iterator.next().value);
+            }
             this.addChatMessage(sender, text, time, isHistory, insertAtTop, skipScroll);
         } else {
             // 如果格式不匹配，显示为系统消息
@@ -1544,6 +1629,8 @@ class ChatApp {
         this.historyOffset = 0;
         this.hasMoreHistory = true;
         this.isLoadingHistory = false;
+        // 清空消息去重集合
+        this.displayedMessages.clear();
 
         const maskedRoom = this.escapeHtml(this.maskRoomKey(this.roomKey || ''));
         this.messagesContainer.innerHTML = `
@@ -2304,7 +2391,7 @@ class ChatApp {
         }
         
         try {
-            const url = CONFIG.getApiUrl('baseUrl') + '/api/admin/users' + (roomKey ? `?roomKey=${encodeURIComponent(roomKey)}` : '');
+            const url = CONFIG.getApiConfig().baseUrl + '/api/admin/users' + (roomKey ? `?roomKey=${encodeURIComponent(roomKey)}` : '');
             const resp = await fetch(url, {
                 method: 'GET',
                 headers: {
@@ -2372,7 +2459,7 @@ class ChatApp {
      */
     async deleteUser(userId) {
         try {
-            const url = CONFIG.getApiUrl('baseUrl') + '/api/admin/user/delete';
+            const url = CONFIG.getApiConfig().baseUrl + '/api/admin/user/delete';
             const resp = await fetch(url, {
                 method: 'POST',
                 headers: {
@@ -2415,7 +2502,7 @@ class ChatApp {
      */
     async resetUserPassword(userId, newPassword) {
         try {
-            const url = CONFIG.getApiUrl('baseUrl') + '/api/admin/user/reset-password';
+            const url = CONFIG.getApiConfig().baseUrl + '/api/admin/user/reset-password';
             const resp = await fetch(url, {
                 method: 'POST',
                 headers: {

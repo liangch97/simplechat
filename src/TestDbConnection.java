@@ -1,6 +1,11 @@
+package app;
+
 import java.sql.Connection;
 import java.sql.Statement;
 import java.sql.ResultSet;
+
+import db.Db;
+import util.Env;
 
 /**
  * 数据库连接测试程序
@@ -11,9 +16,9 @@ public class TestDbConnection {
         System.out.println();
         
         // 读取配置
-        String url = util.Env.get("DB_URL", "未配置");
-        String user = util.Env.get("DB_USER", "未配置");
-        String password = util.Env.get("DB_PASSWORD", "未配置");
+        String url = Env.get("DB_URL", "未配置");
+        String user = Env.get("DB_USER", "未配置");
+        String password = Env.get("DB_PASSWORD", "未配置");
         
         System.out.println("配置信息：");
         System.out.println("  DB_URL:      " + url);
@@ -22,7 +27,7 @@ public class TestDbConnection {
         System.out.println();
         
         // 检查是否启用
-        if (!db.Db.enabled()) {
+        if (!Db.enabled()) {
             System.out.println("❌ 数据库未配置");
             return;
         }

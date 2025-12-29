@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2732" height="2732" viewBox="0 0 2732 2732">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#007a3d;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#004d26;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="2732" height="2732" fill="url(#bg)"/>
+  
+  <!-- Logo Group centered -->
+  <g transform="translate(1016, 1016)">
+    <!-- Chat bubble -->
+    <g transform="translate(0, 0)">
+      <path d="M0 80 Q0 0 80 0 L620 0 Q700 0 700 80 L700 320 Q700 400 620 400 L200 400 L100 500 L100 400 Q0 400 0 320 Z" fill="white" opacity="0.95"/>
+      <!-- Text lines -->
+      <rect x="60" y="100" width="400" height="30" rx="15" fill="#006633" opacity="0.6"/>
+      <rect x="60" y="170" width="320" height="30" rx="15" fill="#006633" opacity="0.6"/>
+      <rect x="60" y="240" width="240" height="30" rx="15" fill="#006633" opacity="0.6"/>
+    </g>
+  </g>
+  
+  <!-- SYSU Chat Text -->
+  <text x="1366" y="1900" text-anchor="middle" font-family="Arial, sans-serif" font-size="180" font-weight="bold" fill="white" opacity="0.95">SYSU Chat</text>
+  <text x="1366" y="2050" text-anchor="middle" font-family="Arial, sans-serif" font-size="80" fill="white" opacity="0.7">中山大学在线聊天室</text>
+</svg>
