@@ -1623,10 +1623,13 @@ public class WebChatServer {
                 for (int i = 0; i < folders.size(); i++) {
                     if (i > 0) sb.append(",");
                     FileDao.FolderInfo folder = folders.get(i);
+                    // 获取文件夹内的文件数量
+                    int fileCount = FileDao.getFileCountInFolder(userInfo.userId, folder.folderPath, roomKey);
                     sb.append("{\"id\":").append(folder.id);
                     sb.append(",\"name\":\"").append(escapeJson(folder.folderName)).append("\"");
                     sb.append(",\"path\":\"").append(escapeJson(folder.folderPath)).append("\"");
                     sb.append(",\"parentPath\":\"").append(escapeJson(folder.parentPath)).append("\"");
+                    sb.append(",\"fileCount\":").append(fileCount);
                     sb.append(",\"createdAt\":\"").append(folder.createdAt).append("\"");
                     sb.append("}");
                 }
@@ -1658,9 +1661,20 @@ public class WebChatServer {
     
     /**
      * 下载文件
-     * GET /api/files/download?roomKey=xxx&fileId=123
+     * GET /api/files/download?roomKey=xxx&fileId=123&token=xxx
+     * 支持两种认证方式：
+     * 1. Authorization header (用于 fetch 请求)
+     * 2. URL 参数 token (用于浏览器直接下载，显示进度)
      */
     static class FileDownloadHandler implements HttpHandler {
+        // 异步线程池用于更新下载计数
+        private static final java.util.concurrent.ExecutorService downloadCountExecutor = 
+            java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "download-count-updater");
+                t.setDaemon(true);
+                return t;
+            });
+        
         @Override
         public void handle(HttpExchange exchange) throws IOException {
             if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
@@ -1677,13 +1691,21 @@ public class WebChatServer {
             addCors(exchange.getResponseHeaders());
             
             try {
-                // 验证用户token
+                // 支持两种认证方式：header 或 URL 参数
+                String token = null;
                 String authHeader = exchange.getRequestHeaders().getFirst("Authorization");
-                if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                if (authHeader != null && authHeader.startsWith("Bearer ")) {
+                    token = authHeader.substring(7);
+                } else {
+                    // 从 URL 参数获取 token（用于浏览器直接下载）
+                    token = getQueryParam(exchange, "token");
+                }
+                
+                if (token == null || token.isEmpty()) {
                     respond(exchange, 401, "{\"error\":\"未授权\"}");
                     return;
                 }
-                String token = authHeader.substring(7);
+                
                 UserDao.UserInfo userInfo = UserDao.validateToken(token);
                 if (userInfo == null) {
                     respond(exchange, 401, "{\"error\":\"无效的token\"}");
@@ -1722,17 +1744,26 @@ public class WebChatServer {
                 // 同一房间的成员都可以访问该房间的文件（群文件共享）
                 // 不再检查 fileInfo.userId != userInfo.userId
                 
-                // 直接读取文件，避免重复查询数据库
+                // 检查文件是否存在
                 java.nio.file.Path filePath = java.nio.file.Paths.get(fileInfo.filePath);
                 if (!java.nio.file.Files.exists(filePath)) {
                     respond(exchange, 404, "{\"error\":\"文件物理存储不存在\"}");
                     return;
                 }
                 
-                byte[] fileData = java.nio.file.Files.readAllBytes(filePath);
+                // 获取文件大小
+                long fileSize = java.nio.file.Files.size(filePath);
                 
-                // 更新下载次数
-                FileDao.incrementDownloadCount(fileId, roomKey);
+                // 异步更新下载次数（不阻塞响应）
+                final long fid = fileId;
+                final String rk = roomKey;
+                downloadCountExecutor.submit(() -> {
+                    try {
+                        FileDao.incrementDownloadCount(fid, rk);
+                    } catch (Exception e) {
+                        System.err.println("更新下载次数失败: " + e.getMessage());
+                    }
+                });
                 
                 // 设置响应头
                 exchange.getResponseHeaders().add("Content-Type", 
@@ -1740,10 +1771,15 @@ public class WebChatServer {
                 exchange.getResponseHeaders().add("Content-Disposition", 
                     "attachment; filename=\"" + fileInfo.fileName + "\"");
                 
-                // 发送文件
-                exchange.sendResponseHeaders(200, fileData.length);
-                try (OutputStream os = exchange.getResponseBody()) {
-                    os.write(fileData);
+                // 使用流式传输发送文件（避免一次性读入内存）
+                exchange.sendResponseHeaders(200, fileSize);
+                try (InputStream is = java.nio.file.Files.newInputStream(filePath);
+                     OutputStream os = exchange.getResponseBody()) {
+                    byte[] buffer = new byte[8192]; // 8KB 缓冲区
+                    int bytesRead;
+                    while ((bytesRead = is.read(buffer)) != -1) {
+                        os.write(buffer, 0, bytesRead);
+                    }
                 }
                 
             } catch (Exception e) {

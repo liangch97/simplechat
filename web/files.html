@@ -173,6 +173,26 @@
         </div>
     </div>
 
+    <!-- Download Progress Modal -->
+    <div id="downloadProgressModal" class="modal">
+        <div class="modal-content download-progress-content">
+            <div class="download-progress-header">
+                <i data-lucide="download" class="download-icon"></i>
+                <span>正在下载</span>
+            </div>
+            <div class="download-file-name" id="downloadFileName">文件名.txt</div>
+            <div class="download-progress-bar-container">
+                <div class="download-progress-bar" id="downloadProgressBar"></div>
+            </div>
+            <div class="download-progress-info">
+                <span id="downloadProgressText">0%</span>
+                <span id="downloadSizeText">0 KB / 0 KB</span>
+            </div>
+            <div class="download-progress-speed" id="downloadSpeedText">0 KB/s</div>
+            <button class="btn btn-outline download-cancel-btn" id="downloadCancelBtn" onclick="cancelDownload()">取消</button>
+        </div>
+    </div>
+
     <!-- Context Menu -->
     <div id="contextMenu" class="context-menu">
         <div class="menu-item" onclick="downloadSelectedFile()">
@@ -202,7 +222,7 @@
         </div>
     </div>
 
-    <script src="js/config.js"></script>
-    <script src="js/files.js"></script>
+    <script src="js/config.js?v=20251229d"></script>
+    <script src="js/files.js?v=20251229d"></script>
 </body>
 </html>

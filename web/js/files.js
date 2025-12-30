@@ -317,7 +317,7 @@ function renderFilesAndFolders(folders, files) {
         
         // 双击下载
         fileItem.addEventListener('dblclick', () => {
-            downloadFileById(file.id);
+            downloadFileById(file.id, file.name, file.size);
         });
         
         // 右键菜单
@@ -362,7 +362,7 @@ function renderFiles(files) {
         
         // 双击下载
         fileItem.addEventListener('dblclick', () => {
-            downloadFileById(file.id);
+            downloadFileById(file.id, file.name, file.size);
         });
         
         // 右键菜单
@@ -583,46 +583,134 @@ async function uploadFiles(files) {
     }, 3000);
 }
 
+// 下载相关变量
+let downloadController = null;  // 用于取消下载
+let downloadStartTime = 0;
+
 // 下载文件
 function downloadFile() {
     if (!selectedFile) return;
-    downloadFileById(selectedFile.id);
+    downloadFileById(selectedFile.id, selectedFile.name, selectedFile.size);
 }
 
-async function downloadFileById(fileId) {
+// 格式化文件大小
+function formatSize(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+// 显示下载进度弹窗
+function showDownloadProgress(fileName) {
+    const modal = document.getElementById('downloadProgressModal');
+    document.getElementById('downloadFileName').textContent = fileName;
+    document.getElementById('downloadProgressBar').style.width = '0%';
+    document.getElementById('downloadProgressText').textContent = '0%';
+    document.getElementById('downloadSizeText').textContent = '0 KB / 0 KB';
+    document.getElementById('downloadSpeedText').textContent = '计算中...';
+    modal.classList.add('active');
+    lucide.createIcons();
+}
+
+// 更新下载进度
+function updateDownloadProgress(loaded, total) {
+    const percent = total > 0 ? Math.round((loaded / total) * 100) : 0;
+    document.getElementById('downloadProgressBar').style.width = percent + '%';
+    document.getElementById('downloadProgressText').textContent = percent + '%';
+    document.getElementById('downloadSizeText').textContent = `${formatSize(loaded)} / ${formatSize(total)}`;
+    
+    // 计算下载速度
+    const elapsed = (Date.now() - downloadStartTime) / 1000;  // 秒
+    if (elapsed > 0) {
+        const speed = loaded / elapsed;
+        document.getElementById('downloadSpeedText').textContent = formatSize(speed) + '/s';
+    }
+}
+
+// 关闭下载进度弹窗
+function closeDownloadProgress() {
+    document.getElementById('downloadProgressModal').classList.remove('active');
+}
+
+// 取消下载
+function cancelDownload() {
+    if (downloadController) {
+        downloadController.abort();
+        downloadController = null;
+    }
+    closeDownloadProgress();
+}
+
+// 下载文件 - 使用 fetch 带进度追踪
+async function downloadFileById(fileId, fileName, fileSize) {
+    // 构造下载 URL
+    const url = `${API_BASE_URL}/api/files/download?roomKey=${encodeURIComponent(roomKey)}&fileId=${fileId}&token=${encodeURIComponent(token)}`;
+    
+    // 创建 AbortController 用于取消下载
+    downloadController = new AbortController();
+    downloadStartTime = Date.now();
+    
+    // 显示进度弹窗
+    showDownloadProgress(fileName || 'download');
+    
     try {
-        const url = `${API_BASE_URL}/api/files/download?roomKey=${encodeURIComponent(roomKey)}&fileId=${fileId}`;
         const response = await fetch(url, {
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
+            signal: downloadController.signal
         });
         
         if (!response.ok) {
-            // 尝试解析服务器返回的错误信息
-            let errorMsg = '下载失败';
-            try {
-                const errorData = await response.json();
-                errorMsg = errorData.error || errorMsg;
-            } catch (e) {
-                errorMsg = `下载失败 (HTTP ${response.status})`;
-            }
-            throw new Error(errorMsg);
+            throw new Error(`下载失败 (HTTP ${response.status})`);
         }
         
-        const blob = await response.blob();
+        // 获取文件总大小
+        const contentLength = response.headers.get('content-length');
+        const total = contentLength ? parseInt(contentLength, 10) : (fileSize || 0);
+        
+        // 使用 ReadableStream 读取数据并追踪进度
+        const reader = response.body.getReader();
+        const chunks = [];
+        let loaded = 0;
+        
+        while (true) {
+            const { done, value } = await reader.read();
+            
+            if (done) break;
+            
+            chunks.push(value);
+            loaded += value.length;
+            
+            // 更新进度
+            updateDownloadProgress(loaded, total);
+        }
+        
+        // 合并所有数据块
+        const blob = new Blob(chunks);
+        
+        // 创建下载链接
         const downloadUrl = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = downloadUrl;
-        a.download = selectedFile?.name || 'download';
+        a.download = fileName || 'download';
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(downloadUrl);
         
+        // 关闭进度弹窗
+        closeDownloadProgress();
+        
     } catch (error) {
-        console.error('下载失败:', error);
-        alert('下载失败: ' + error.message);
+        if (error.name === 'AbortError') {
+            console.log('下载已取消');
+        } else {
+            console.error('下载失败:', error);
+            alert('下载失败: ' + error.message);
+        }
+        closeDownloadProgress();
+    } finally {
+        downloadController = null;
     }
 }
 

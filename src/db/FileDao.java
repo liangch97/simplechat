@@ -3,11 +3,57 @@ package db;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 用户文件数据访问对象
  */
 public class FileDao {
+    
+    // 文件信息缓存：cacheKey (roomKey:fileId) -> CachedFileInfo
+    private static final ConcurrentHashMap<String, CachedFileInfo> fileCache = new ConcurrentHashMap<>();
+    // 缓存过期时间：2分钟
+    private static final long FILE_CACHE_TTL_MS = 2 * 60 * 1000;
+    // 最大缓存数量
+    private static final int MAX_FILE_CACHE_SIZE = 500;
+    
+    /**
+     * 缓存的文件信息
+     */
+    private static class CachedFileInfo {
+        final FileInfo fileInfo;
+        final long cachedAt;
+        
+        CachedFileInfo(FileInfo fileInfo) {
+            this.fileInfo = fileInfo;
+            this.cachedAt = System.currentTimeMillis();
+        }
+        
+        boolean isExpired() {
+            return System.currentTimeMillis() - cachedAt > FILE_CACHE_TTL_MS;
+        }
+    }
+    
+    /**
+     * 生成缓存 key
+     */
+    private static String cacheKey(long fileId, String roomKey) {
+        return roomKey + ":" + fileId;
+    }
+    
+    /**
+     * 清理过期缓存
+     */
+    private static void cleanExpiredFileCache() {
+        fileCache.entrySet().removeIf(entry -> entry.getValue().isExpired());
+    }
+    
+    /**
+     * 使文件缓存失效
+     */
+    public static void invalidateFileCache(long fileId, String roomKey) {
+        fileCache.remove(cacheKey(fileId, roomKey));
+    }
     
     /**
      * 初始化表结构
@@ -169,9 +215,18 @@ public class FileDao {
     }
     
     /**
-     * 根据ID获取文件信息
+     * 根据ID获取文件信息（带缓存）
      */
     public static FileInfo getFileById(long fileId, String roomKey) throws SQLException {
+        String key = cacheKey(fileId, roomKey);
+        
+        // 先检查缓存
+        CachedFileInfo cached = fileCache.get(key);
+        if (cached != null && !cached.isExpired()) {
+            return cached.fileInfo;
+        }
+        
+        // 缓存未命中，查询数据库
         String sql = "SELECT * FROM user_files WHERE id = ? AND room_key = ?";
         
         try (Connection conn = Db.getConnection(roomKey);
@@ -182,7 +237,13 @@ public class FileDao {
             
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
-                    return new FileInfo(rs);
+                    FileInfo fileInfo = new FileInfo(rs);
+                    // 缓存结果
+                    if (fileCache.size() > MAX_FILE_CACHE_SIZE) {
+                        cleanExpiredFileCache();
+                    }
+                    fileCache.put(key, new CachedFileInfo(fileInfo));
+                    return fileInfo;
                 }
             }
         }
@@ -193,6 +254,9 @@ public class FileDao {
      * 删除文件记录
      */
     public static boolean deleteFile(long fileId, long userId, String roomKey) throws SQLException {
+        // 删除时清理缓存
+        invalidateFileCache(fileId, roomKey);
+        
         String sql = "DELETE FROM user_files WHERE id = ? AND user_id = ? AND room_key = ?";
         
         try (Connection conn = Db.getConnection(roomKey);
@@ -372,6 +436,7 @@ public class FileDao {
         public String roomKey;
         public Timestamp createdAt;
         public Timestamp updatedAt;
+        public int fileCount; // 文件夹内的文件数量
         
         public FolderInfo() {}
         

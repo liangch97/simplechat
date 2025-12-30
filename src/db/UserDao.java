@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 用户 DAO：注册、登录、Token 验证
@@ -17,6 +18,30 @@ public class UserDao {
     private static final String SECRET_KEY = "24336064";
     // 管理员用户名列表
     private static final java.util.Set<String> ADMIN_USERNAMES = java.util.Set.of("liangch97");
+    
+    // Token 缓存：token -> CachedUserInfo
+    private static final ConcurrentHashMap<String, CachedUserInfo> tokenCache = new ConcurrentHashMap<>();
+    // 缓存过期时间：5分钟
+    private static final long TOKEN_CACHE_TTL_MS = 5 * 60 * 1000;
+    // 最大缓存数量
+    private static final int MAX_CACHE_SIZE = 1000;
+    
+    /**
+     * 缓存的用户信息
+     */
+    private static class CachedUserInfo {
+        final UserInfo userInfo;
+        final long cachedAt;
+        
+        CachedUserInfo(UserInfo userInfo) {
+            this.userInfo = userInfo;
+            this.cachedAt = System.currentTimeMillis();
+        }
+        
+        boolean isExpired() {
+            return System.currentTimeMillis() - cachedAt > TOKEN_CACHE_TTL_MS;
+        }
+    }
     
     /**
      * 初始化用户表
@@ -200,12 +225,19 @@ public class UserDao {
     }
     
     /**
-     * 验证 Token
+     * 验证 Token（带缓存）
      * @return 用户信息，无效返回 null
      */
     public static UserInfo validateToken(String token) {
         if (token == null || token.isEmpty()) return null;
         
+        // 先检查缓存
+        CachedUserInfo cached = tokenCache.get(token);
+        if (cached != null && !cached.isExpired()) {
+            return cached.userInfo;
+        }
+        
+        // 缓存未命中或已过期，进行验证
         try {
             // Token 格式: base64(userId:username:timestamp:signature)
             String decoded = new String(Base64.getDecoder().decode(token));
@@ -223,12 +255,43 @@ public class UserDao {
             
             // 检查是否过期 (24小时)
             long now = System.currentTimeMillis();
-            if (now - timestamp > 24 * 60 * 60 * 1000) return null;
+            if (now - timestamp > 24 * 60 * 60 * 1000) {
+                // Token 过期，移除缓存
+                tokenCache.remove(token);
+                return null;
+            }
             
             // 从数据库获取用户信息
-            return getUserInfo(userId);
+            UserInfo userInfo = getUserInfo(userId);
+            
+            // 缓存结果
+            if (userInfo != null) {
+                // 清理过期缓存（简单策略：超过上限时清理）
+                if (tokenCache.size() > MAX_CACHE_SIZE) {
+                    cleanExpiredCache();
+                }
+                tokenCache.put(token, new CachedUserInfo(userInfo));
+            }
+            
+            return userInfo;
         } catch (Exception e) {
             return null;
+        }
+    }
+    
+    /**
+     * 清理过期的 Token 缓存
+     */
+    private static void cleanExpiredCache() {
+        tokenCache.entrySet().removeIf(entry -> entry.getValue().isExpired());
+    }
+    
+    /**
+     * 使缓存失效（用于用户信息更新时）
+     */
+    public static void invalidateTokenCache(String token) {
+        if (token != null) {
+            tokenCache.remove(token);
         }
     }
     

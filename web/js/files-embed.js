@@ -294,14 +294,102 @@
         }
     }
 
+    // 下载相关变量
+    let downloadController = null;
+    let downloadStartTime = 0;
+
+    // 显示下载进度弹窗
+    function showDownloadProgress(fileName) {
+        let modal = document.getElementById('embedDownloadModal');
+        if (!modal) {
+            // 动态创建进度弹窗
+            modal = document.createElement('div');
+            modal.id = 'embedDownloadModal';
+            modal.className = 'modal';
+            modal.style.display = 'none'; // 初始隐藏
+            modal.innerHTML = `
+                <div class="modal-content" style="width:380px;max-width:90vw;text-align:center;padding:1.5rem;" onclick="event.stopPropagation()">
+                    <div style="display:flex;align-items:center;justify-content:center;gap:0.5rem;margin-bottom:1rem;font-size:1.1rem;font-weight:600;">
+                        <i data-lucide="download" style="width:24px;height:24px;color:var(--primary);"></i>
+                        <span>正在下载</span>
+                    </div>
+                    <div id="embedDownloadFileName" style="font-size:0.9rem;color:var(--text-secondary);margin-bottom:1rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>
+                    <div style="width:100%;height:10px;background:var(--bg-tertiary);border-radius:5px;overflow:hidden;margin-bottom:0.75rem;">
+                        <div id="embedDownloadBar" style="height:100%;width:0%;background:linear-gradient(90deg,var(--primary),#818cf8);border-radius:5px;transition:width 0.3s;"></div>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.5rem;">
+                        <span id="embedDownloadPercent">0%</span>
+                        <span id="embedDownloadSize">0 KB / 0 KB</span>
+                    </div>
+                    <div id="embedDownloadSpeed" style="font-size:0.85rem;color:var(--text-tertiary);margin-bottom:1rem;">计算中...</div>
+                    <button class="btn btn-outline btn-sm" id="embedDownloadCancel" style="cursor:pointer;">取消</button>
+                </div>
+            `;
+            document.body.appendChild(modal);
+        }
+        // 每次都重新绑定事件，确保有效
+        const cancelBtn = document.getElementById('embedDownloadCancel');
+        cancelBtn.onclick = function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            cancelDownload();
+        };
+        document.getElementById('embedDownloadFileName').textContent = fileName;
+        document.getElementById('embedDownloadBar').style.width = '0%';
+        document.getElementById('embedDownloadPercent').textContent = '0%';
+        document.getElementById('embedDownloadSize').textContent = '0 KB / 0 KB';
+        document.getElementById('embedDownloadSpeed').textContent = '计算中...';
+        modal.style.display = 'flex';
+        lucide.createIcons();
+    }
+
+    // 更新下载进度
+    function updateDownloadProgress(loaded, total) {
+        const percent = total > 0 ? Math.round((loaded / total) * 100) : 0;
+        document.getElementById('embedDownloadBar').style.width = percent + '%';
+        document.getElementById('embedDownloadPercent').textContent = percent + '%';
+        document.getElementById('embedDownloadSize').textContent = `${formatSize(loaded)} / ${formatSize(total)}`;
+        
+        const elapsed = (Date.now() - downloadStartTime) / 1000;
+        if (elapsed > 0) {
+            const speed = loaded / elapsed;
+            document.getElementById('embedDownloadSpeed').textContent = formatSize(speed) + '/s';
+        }
+    }
+
+    // 关闭下载进度弹窗
+    function closeDownloadProgress() {
+        const modal = document.getElementById('embedDownloadModal');
+        if (modal) {
+            modal.style.display = 'none';
+        }
+    }
+
+    // 取消下载
+    function cancelDownload() {
+        if (downloadController) {
+            downloadController.abort();
+            downloadController = null;
+        }
+        closeDownloadProgress();
+    }
+
+    // 下载文件 - 带进度条
     async function downloadFile(file) {
         const auth = getAuth();
         if (!auth) return;
+        
+        const url = `${API_BASE_URL}/api/files/download?roomKey=${encodeURIComponent(auth.roomKey)}&fileId=${file.id}&token=${encodeURIComponent(auth.token)}`;
+        
+        downloadController = new AbortController();
+        downloadStartTime = Date.now();
+        
+        showDownloadProgress(file.name);
+        
         try {
-            const url = `${API_BASE_URL}/api/files/download?roomKey=${encodeURIComponent(auth.roomKey)}&fileId=${file.id}`;
-            const resp = await fetch(url, { headers: { 'Authorization': `Bearer ${auth.token}` } });
+            const resp = await fetch(url, { signal: downloadController.signal });
+            
             if (!resp.ok) {
-                // 尝试解析服务器返回的错误信息
                 let errorMsg = '下载失败';
                 try {
                     const errorData = await resp.json();
@@ -311,7 +399,23 @@
                 }
                 throw new Error(errorMsg);
             }
-            const blob = await resp.blob();
+            
+            const contentLength = resp.headers.get('content-length');
+            const total = contentLength ? parseInt(contentLength, 10) : (file.size || 0);
+            
+            const reader = resp.body.getReader();
+            const chunks = [];
+            let loaded = 0;
+            
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                chunks.push(value);
+                loaded += value.length;
+                updateDownloadProgress(loaded, total);
+            }
+            
+            const blob = new Blob(chunks);
             const link = document.createElement('a');
             link.href = URL.createObjectURL(blob);
             link.download = file.name;
@@ -319,9 +423,19 @@
             link.click();
             document.body.removeChild(link);
             URL.revokeObjectURL(link.href);
+            
+            closeDownloadProgress();
+            
         } catch (err) {
-            console.error('[Files] download failed', err);
-            alert('下载失败: ' + err.message);
+            if (err.name === 'AbortError') {
+                console.log('[Files] download cancelled');
+            } else {
+                console.error('[Files] download failed', err);
+                alert('下载失败: ' + err.message);
+            }
+            closeDownloadProgress();
+        } finally {
+            downloadController = null;
         }
     }
 

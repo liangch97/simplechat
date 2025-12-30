@@ -22,8 +22,11 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM 创建输出目录
-if not exist "out" mkdir out
+REM 清理并创建输出目录
+if exist "out" (
+    rmdir /s /q out
+)
+mkdir out
 
 echo [1/4] 正在编译服务器...
 REM 包含 JDBC 驱动（如 lib\mysql-connector-j-*.jar）
@@ -58,6 +61,6 @@ echo ============================================
 echo.
 
 REM 运行时加入 lib/* 以加载 MySQL 驱动
-java -cp "out;lib/*" WebChatServer %PORT%
+java -cp "out;lib/*" app.WebChatServer %PORT%
 
 pause
